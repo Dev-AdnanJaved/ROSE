@@ -5,7 +5,9 @@ from app.strategy.validator import validate
 from app.market.coin_classifier import classify
 from app.strategy.tp_selector import get_tp
 from app.exchange.executor import open_trade
+from app.exchange.account import get_available_usdt
 from app.strategy.position_manager import watch
+from app.strategy import trade_history
 from app.core.logger import logger
 
 _busy = False
@@ -18,7 +20,6 @@ def is_trading() -> bool:
 
 
 async def _try_claim(symbol: str) -> bool:
-    """Atomic single-trade gate. Returns True if this signal got the slot."""
     global _busy, _current_trade
     async with _busy_lock:
         if _busy:
@@ -46,17 +47,41 @@ async def _handle(symbol: str):
         tp = get_tp(cap)
         logger.info(f"{symbol} cap={cap} tp={tp}%")
 
+        balance_before = await get_available_usdt()
         trade = await open_trade(symbol, tp)
         if not trade:
             return
+
+        if balance_before <= 0:
+            balance_before = trade.get("balance_before") or 0.0
+
+        await trade_history.trade_opened(
+            symbol=symbol,
+            entry=trade["entry"],
+            qty=trade["qty"],
+            leverage=trade["leverage"],
+            margin=trade.get("margin", 0.0),
+            balance_before=balance_before,
+            tp_pct=tp,
+        )
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
         logger.info(f"{symbol} entry placed in {elapsed_ms:.0f}ms — watching to close")
 
         result = await watch(trade)
-        logger.info(f"{symbol} closed ({result}) — ready for next signal")
+        await asyncio.sleep(1.0)
+        balance_after = await get_available_usdt(force_refresh=True)
+        await trade_history.trade_closed(result=result, balance_after=balance_after)
+        logger.info(
+            f"{symbol} closed ({result}) — balance {balance_before:.2f} → {balance_after:.2f}"
+        )
     except Exception as e:
         logger.exception(f"Error handling {symbol}: {e}")
+        try:
+            bal = await get_available_usdt(force_refresh=True)
+            await trade_history.trade_closed(result="ERROR", balance_after=bal)
+        except Exception:
+            pass
     finally:
         await _release()
 

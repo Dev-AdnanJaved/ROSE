@@ -59,6 +59,12 @@ class Config:
 
     ENABLE_ANTI_SCAM = _b("ENABLE_ANTI_SCAM", False)
 
+    TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "").strip()
+    TG_BOT_ADMIN_IDS = [
+        int(x) for x in os.getenv("TG_BOT_ADMIN_IDS", "").split(",")
+        if x.strip().lstrip("-").isdigit()
+    ]
+
     COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
     MARKETCAP_UPDATE_HOURS = _f("MARKETCAP_UPDATE_HOURS", 4.0)
     MARKETCAP_MAX_PAGES = _i("MARKETCAP_MAX_PAGES", 20)

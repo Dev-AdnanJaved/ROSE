@@ -1,15 +1,20 @@
 import asyncio
 from app.core.logger import logger
+from app.core.config import Config
 from app.exchange import symbols as symbol_cache
-from app.exchange.account import detect_position_mode, get_open_position_symbols, has_open_positions
+from app.exchange.account import (
+    detect_position_mode, get_open_position_symbols, has_open_positions,
+    get_available_usdt,
+)
 from app.exchange.binance_client import close_client
 from app.market.marketcap_updater import fetch_marketcaps, start_marketcap_updater
 from app.gateway.telegram_gateway import start_telegram
 from app.strategy.signal_router import start_router
+from app.strategy import trade_history
+from app.telegram.command_bot import start_command_bot
 
 
 async def _watch_preexisting_positions():
-    """If startup detected pre-existing positions, periodically check and release the lock once flat."""
     from app.strategy import signal_router
     while True:
         await asyncio.sleep(15)
@@ -36,6 +41,14 @@ async def _prewarm():
 
     await detect_position_mode()
 
+    trade_history.load()
+    try:
+        bal = await get_available_usdt(force_refresh=True)
+        if bal > 0:
+            await trade_history.set_initial_balance(bal)
+    except Exception as e:
+        logger.warning(f"initial balance snapshot failed: {e}")
+
     open_syms = await get_open_position_symbols()
     if open_syms:
         logger.warning(
@@ -57,10 +70,13 @@ async def _prewarm():
 async def start():
     try:
         await _prewarm()
-        await asyncio.gather(
+        tasks = [
             start_telegram(),
             start_router(),
             start_marketcap_updater(),
-        )
+        ]
+        if Config.TG_BOT_TOKEN:
+            tasks.append(start_command_bot())
+        await asyncio.gather(*tasks)
     finally:
         await close_client()

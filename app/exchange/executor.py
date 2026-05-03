@@ -164,6 +164,9 @@ async def open_trade(symbol: str, tp_pct: float):
             "entry": entry,
             "qty": qty,
             "leverage": max_lev,
+            "margin": margin,
+            "balance_before": balance if Config.SIZING_MODE == "PERCENT" else None,
+            "tp_pct": tp_pct,
             "tp_order_id": tp_id,
             "sl_order_id": sl_id,
         }
