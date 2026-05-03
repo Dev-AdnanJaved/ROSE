@@ -44,7 +44,11 @@ class Config:
     SIZING_MODE = os.getenv("SIZING_MODE", "PERCENT").upper()
     BALANCE_CACHE_SECONDS = _f("BALANCE_CACHE_SECONDS", 30.0)
 
-    MAX_LEVERAGE_CAP = _i("MAX_LEVERAGE_CAP", 125)
+    MAX_LEVERAGE_CAP = _i("MAX_LEVERAGE_CAP", 50)
+    LEVERAGE_LADDER = [
+        int(x) for x in os.getenv("LEVERAGE_LADDER", "50,40,30,20,10,5").split(",")
+        if x.strip()
+    ]
     MARGIN_TYPE = os.getenv("MARGIN_TYPE", "ISOLATED").upper()
 
     USE_LIMIT_TP = _b("USE_LIMIT_TP", True)

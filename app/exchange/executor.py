@@ -28,10 +28,19 @@ async def _ensure_leverage_and_margin(client, symbol: str, leverage: int) -> int
 
 
 async def _set_leverage_with_fallback(client, symbol, leverage) -> int:
-    """Try requested leverage; on failure, halve and retry down to 1x."""
-    attempt = leverage
+    """Try the configured leverage ladder, starting at the requested level or below."""
+    ladder = [v for v in Config.LEVERAGE_LADDER if v <= leverage]
+    if not ladder or ladder[0] != leverage:
+        ladder = [leverage] + ladder
+    seen = set()
+    ordered = []
+    for v in ladder:
+        if v >= 1 and v not in seen:
+            seen.add(v)
+            ordered.append(v)
+
     last_err = None
-    while attempt >= 1:
+    for attempt in ordered:
         try:
             await client.futures_change_leverage(symbol=symbol, leverage=attempt)
             symbols.mark_leverage_set(symbol)
@@ -45,9 +54,7 @@ async def _set_leverage_with_fallback(client, symbol, leverage) -> int:
         except Exception as e:
             last_err = e
             logger.warning(f"{symbol} leverage {attempt}x rejected: {e}")
-            if attempt == 1:
-                break
-            attempt = max(1, attempt // 2)
+
     logger.error(f"{symbol} leverage setup failed at every level: {last_err}")
     return 0
 
