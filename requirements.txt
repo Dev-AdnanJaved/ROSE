@@ -1,0 +1,7 @@
+telethon
+python-binance
+python-dotenv
+redis
+aiohttp
+uvloop
+loguru
