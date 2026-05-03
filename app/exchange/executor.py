@@ -175,55 +175,88 @@ async def _place_exit_brackets(client, symbol, entry, qty, tp_pct, leverage):
         tp_price *= 1 + Config.TP_LIMIT_OFFSET_BPS / 10_000
     tp_price = symbols.round_price(symbol, tp_price)
 
-    if Config.USE_LIMIT_TP:
-        tp_coro = client.futures_create_order(
-            symbol=symbol,
-            side="SELL",
-            type="LIMIT",
-            timeInForce="GTC",
-            quantity=qty,
-            price=tp_price,
-            reduceOnly=True,
-        )
-    else:
-        tp_coro = client.futures_create_order(
-            symbol=symbol,
-            side="SELL",
-            type="TAKE_PROFIT_MARKET",
-            stopPrice=tp_price,
-            closePosition=True,
-        )
-
     sl_price_task = asyncio.create_task(_compute_sl_price(client, symbol, entry, leverage))
-    tp_task = asyncio.create_task(tp_coro)
+    tp_task = asyncio.create_task(_place_tp(client, symbol, qty, tp_price))
 
     sl_price = await sl_price_task
     sl_price = symbols.round_price(symbol, sl_price)
+    sl_task = asyncio.create_task(_place_sl(client, symbol, sl_price))
 
-    sl_task = asyncio.create_task(client.futures_create_order(
-        symbol=symbol,
-        side="SELL",
-        type="STOP_MARKET",
-        stopPrice=sl_price,
-        closePosition=True,
-    ))
+    tp_id, sl_id = await asyncio.gather(tp_task, sl_task)
 
-    tp_res, sl_res = await asyncio.gather(tp_task, sl_task, return_exceptions=True)
+    if sl_id is None:
+        logger.critical(
+            f"{symbol} SL FAILED after retries — emergency closing position to avoid naked risk"
+        )
+        await _emergency_close(client, symbol, qty)
+        return tp_id, None
 
-    tp_id = sl_id = None
-    if isinstance(tp_res, Exception):
-        logger.error(f"{symbol} TP order failed: {tp_res}")
-    else:
-        tp_id = tp_res.get("orderId")
-        logger.info(f"{symbol} TP @ {tp_price} (id={tp_id})")
-
-    if isinstance(sl_res, Exception):
-        logger.error(f"{symbol} SL order failed: {sl_res}")
-    else:
-        sl_id = sl_res.get("orderId")
-        logger.info(f"{symbol} SL @ {sl_price} (id={sl_id})")
+    if tp_id is None:
+        logger.error(
+            f"{symbol} TP failed after retries — position protected by SL, leaving open"
+        )
 
     return tp_id, sl_id
+
+
+async def _place_tp(client, symbol, qty, tp_price, attempts=4):
+    delay = 0.3
+    for i in range(1, attempts + 1):
+        try:
+            if Config.USE_LIMIT_TP:
+                res = await client.futures_create_order(
+                    symbol=symbol, side="SELL", type="LIMIT",
+                    timeInForce="GTC", quantity=qty, price=tp_price, reduceOnly=True,
+                )
+            else:
+                res = await client.futures_create_order(
+                    symbol=symbol, side="SELL", type="TAKE_PROFIT_MARKET",
+                    stopPrice=tp_price, closePosition=True,
+                )
+            oid = res.get("orderId")
+            logger.info(f"{symbol} TP @ {tp_price} placed (id={oid}, attempt {i})")
+            return oid
+        except Exception as e:
+            logger.warning(f"{symbol} TP attempt {i}/{attempts} failed: {e}")
+            if i < attempts:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 2.0)
+    return None
+
+
+async def _place_sl(client, symbol, sl_price, attempts=5):
+    delay = 0.3
+    for i in range(1, attempts + 1):
+        try:
+            res = await client.futures_create_order(
+                symbol=symbol, side="SELL", type="STOP_MARKET",
+                stopPrice=sl_price, closePosition=True,
+            )
+            oid = res.get("orderId")
+            logger.info(f"{symbol} SL @ {sl_price} placed (id={oid}, attempt {i})")
+            return oid
+        except Exception as e:
+            logger.warning(f"{symbol} SL attempt {i}/{attempts} failed: {e}")
+            if i < attempts:
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 2.0)
+    return None
+
+
+async def _emergency_close(client, symbol, qty):
+    for i in range(1, 6):
+        try:
+            await client.futures_create_order(
+                symbol=symbol, side="SELL", type="MARKET",
+                quantity=qty, reduceOnly=True,
+            )
+            logger.warning(f"{symbol} emergency MARKET close succeeded (attempt {i})")
+            return True
+        except Exception as e:
+            logger.error(f"{symbol} emergency close attempt {i} failed: {e}")
+            await asyncio.sleep(min(0.5 * i, 3.0))
+    logger.critical(f"{symbol} EMERGENCY CLOSE FAILED — MANUAL INTERVENTION REQUIRED")
+    return False
 
 
 async def _compute_sl_price(client, symbol, entry, leverage):
