@@ -4,31 +4,58 @@ from app.market.marketcap_cache import update_cache, marketcaps
 from app.core.config import Config
 from app.core.logger import logger
 
-URL = "https://pro-api.coingecko.com/api/v3/coins/markets"
+PRO_URL = "https://pro-api.coingecko.com/api/v3/coins/markets"
+FREE_URL = "https://api.coingecko.com/api/v3/coins/markets"
+
+
+def _key_valid() -> bool:
+    k = (Config.COINGECKO_API_KEY or "").strip()
+    return bool(k) and k.lower() not in ("your_key_here", "none", "null")
 
 
 async def _fetch_page(session, page):
     params = {"vs_currency": "usd", "per_page": 250, "page": page}
-    headers = {"x-cg-pro-api-key": Config.COINGECKO_API_KEY} if Config.COINGECKO_API_KEY else {}
-    async with session.get(URL, params=params, headers=headers, timeout=30) as r:
-        if r.status != 200:
-            logger.error(f"CoinGecko page {page} -> HTTP {r.status}")
-            return None
-        return await r.json()
+    headers = {}
+    if _key_valid():
+        url = PRO_URL
+        headers["x-cg-pro-api-key"] = Config.COINGECKO_API_KEY
+    else:
+        url = FREE_URL
+
+    try:
+        async with session.get(url, params=params, headers=headers, timeout=30) as r:
+            if r.status == 429:
+                logger.warning(f"CoinGecko page {page} rate-limited (429)")
+                return None
+            if r.status != 200:
+                logger.error(f"CoinGecko page {page} -> HTTP {r.status}")
+                return None
+            return await r.json()
+    except Exception as e:
+        logger.warning(f"CoinGecko page {page} fetch error: {e}")
+        return None
 
 
 async def fetch_marketcaps():
-    if not Config.COINGECKO_API_KEY or Config.COINGECKO_API_KEY == "your_key_here":
-        if not marketcaps:
-            logger.warning("COINGECKO_API_KEY not set, skipping marketcap fetch")
-        return
+    using_free = not _key_valid()
+    # Free endpoint is rate-limited (~10-30 req/min). Cap pages and serialize.
+    max_pages = min(Config.MARKETCAP_MAX_PAGES, 4) if using_free else Config.MARKETCAP_MAX_PAGES
+
+    if using_free:
+        logger.info(f"CoinGecko: using FREE endpoint (capped to {max_pages} pages, serialized)")
 
     all_caps: dict[str, float] = {}
     async with aiohttp.ClientSession() as session:
-        results = await asyncio.gather(
-            *[_fetch_page(session, p) for p in range(1, Config.MARKETCAP_MAX_PAGES + 1)],
-            return_exceptions=True,
-        )
+        if using_free:
+            results = []
+            for p in range(1, max_pages + 1):
+                results.append(await _fetch_page(session, p))
+                await asyncio.sleep(2.0)
+        else:
+            results = await asyncio.gather(
+                *[_fetch_page(session, p) for p in range(1, max_pages + 1)],
+                return_exceptions=True,
+            )
 
     for data in results:
         if not data or isinstance(data, Exception):
