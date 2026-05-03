@@ -5,27 +5,50 @@ from app.core.config import Config
 from app.core.logger import logger
 
 
-async def _ensure_leverage_and_margin(client, symbol: str, leverage: int) -> bool:
-    tasks = []
-    if symbols.needs_leverage_set(symbol):
-        tasks.append(("leverage", _set_leverage(client, symbol, leverage)))
+async def _ensure_leverage_and_margin(client, symbol: str, leverage: int) -> int:
+    """Returns the actually-set leverage (>=1), or 0 on total failure."""
+    margin_task = None
     if symbols.needs_margin_set(symbol):
-        tasks.append(("margin", _set_margin(client, symbol)))
-    if not tasks:
-        return True
-    results = await asyncio.gather(*[t[1] for t in tasks], return_exceptions=True)
-    for (name, _), res in zip(tasks, results):
-        if isinstance(res, Exception) or res is False:
-            logger.error(f"{symbol} {name} setup failed: {res} — aborting trade")
-            return False
-    return True
+        margin_task = asyncio.create_task(_set_margin(client, symbol))
+
+    if symbols.needs_leverage_set(symbol):
+        applied = await _set_leverage_with_fallback(client, symbol, leverage)
+    else:
+        applied = leverage
+
+    if margin_task is not None:
+        try:
+            await margin_task
+        except Exception as e:
+            logger.error(f"{symbol} margin setup failed: {e} — aborting trade")
+            return 0
+
+    return applied
 
 
-async def _set_leverage(client, symbol, leverage) -> bool:
-    await client.futures_change_leverage(symbol=symbol, leverage=leverage)
-    symbols.mark_leverage_set(symbol)
-    logger.info(f"{symbol} leverage set to {leverage}x")
-    return True
+async def _set_leverage_with_fallback(client, symbol, leverage) -> int:
+    """Try requested leverage; on failure, halve and retry down to 1x."""
+    attempt = leverage
+    last_err = None
+    while attempt >= 1:
+        try:
+            await client.futures_change_leverage(symbol=symbol, leverage=attempt)
+            symbols.mark_leverage_set(symbol)
+            if attempt != leverage:
+                logger.warning(
+                    f"{symbol} leverage set to {attempt}x (requested {leverage}x — fallback)"
+                )
+            else:
+                logger.info(f"{symbol} leverage set to {attempt}x")
+            return attempt
+        except Exception as e:
+            last_err = e
+            logger.warning(f"{symbol} leverage {attempt}x rejected: {e}")
+            if attempt == 1:
+                break
+            attempt = max(1, attempt // 2)
+    logger.error(f"{symbol} leverage setup failed at every level: {last_err}")
+    return 0
 
 
 async def _set_margin(client, symbol) -> bool:
@@ -58,10 +81,12 @@ async def open_trade(symbol: str, tp_pct: float):
 
     try:
         mark_task = asyncio.create_task(_mark_price(client, symbol))
-        ok = await _ensure_leverage_and_margin(client, symbol, max_lev)
-        if not ok:
+        applied_lev = await _ensure_leverage_and_margin(client, symbol, max_lev)
+        if applied_lev <= 0:
             mark_task.cancel()
             return None
+        if applied_lev != max_lev:
+            max_lev = applied_lev
         price = await mark_task
         if price <= 0:
             logger.error(f"{symbol} bad mark price")
