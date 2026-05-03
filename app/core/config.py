@@ -8,13 +8,13 @@ class Config:
     TG_API_ID = int(os.getenv("TG_API_ID"))
     TG_API_HASH = os.getenv("TG_API_HASH")
     TG_SESSION = os.getenv("TG_SESSION")
-    CHANNELS = os.getenv("TG_CHANNELS").split(",")
+    CHANNELS = [c.strip() for c in os.getenv("TG_CHANNELS", "").split(",") if c.strip()]
 
     API_KEY = os.getenv("BINANCE_API_KEY")
     API_SECRET = os.getenv("BINANCE_SECRET")
 
-    REDIS_HOST = os.getenv("REDIS_HOST")
-    REDIS_PORT = int(os.getenv("REDIS_PORT"))
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
     LOW_CAP_TP = float(os.getenv("LOW_CAP_TP"))
     MID_CAP_TP = float(os.getenv("MID_CAP_TP"))
@@ -26,4 +26,8 @@ class Config:
     STOP_LOSS = float(os.getenv("STOP_LOSS"))
     TRADE_SIZE = float(os.getenv("TRADE_USDT_SIZE"))
 
-    ENABLE_ANTI_SCAM = os.getenv("ENABLE_ANTI_SCAM") == "true"
+    ENABLE_ANTI_SCAM = os.getenv("ENABLE_ANTI_SCAM", "false").lower() == "true"
+
+    COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
+    MARKETCAP_UPDATE_HOURS = float(os.getenv("MARKETCAP_UPDATE_HOURS", "4"))
+    MARKETCAP_MAX_PAGES = int(os.getenv("MARKETCAP_MAX_PAGES", "20"))
