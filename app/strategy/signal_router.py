@@ -93,8 +93,9 @@ async def _handle(symbol: str):
 
         balance_before = await get_available_usdt()
         trade = await open_trade(symbol, tp)
-        if not trade:
-            notify_bg(f"❌ `{symbol}` — failed to open trade (see logs)")
+        if not trade or trade.get("error"):
+            reason = (trade or {}).get("error", "unknown error")
+            notify_bg(f"❌ *Trade failed* `{symbol}`\nReason: `{reason}`")
             return
 
         if balance_before <= 0:

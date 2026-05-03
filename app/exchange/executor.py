@@ -94,7 +94,7 @@ async def open_trade(symbol: str, tp_pct: float):
 
     if not symbols.is_tradable(symbol):
         logger.warning(f"{symbol} not a tradable USDT-M futures symbol — skipping")
-        return None
+        return {"error": "not a tradable USDT-M futures symbol"}
 
     f = symbols.get_filters(symbol)
     max_lev = min(symbols.get_max_leverage(symbol), Config.MAX_LEVERAGE_CAP)
@@ -108,7 +108,7 @@ async def open_trade(symbol: str, tp_pct: float):
             mark_task.cancel()
             if bal_task:
                 bal_task.cancel()
-            return None
+            return {"error": "leverage/margin setup failed (every ladder step rejected)"}
         if applied_lev != max_lev:
             max_lev = applied_lev
         price = await mark_task
@@ -116,13 +116,13 @@ async def open_trade(symbol: str, tp_pct: float):
             logger.error(f"{symbol} bad mark price")
             if bal_task:
                 bal_task.cancel()
-            return None
+            return {"error": "mark price unavailable"}
 
         if Config.SIZING_MODE == "PERCENT":
             balance = await bal_task
             if balance <= 0:
                 logger.error(f"{symbol} no available USDT balance")
-                return None
+                return {"error": "no available USDT balance"}
             margin = balance * Config.TRADE_MARGIN_PCT / 100
             logger.info(
                 f"{symbol} balance={balance:.2f} USDT × {Config.TRADE_MARGIN_PCT}% "
@@ -137,12 +137,12 @@ async def open_trade(symbol: str, tp_pct: float):
 
         if qty < f["min_qty"] or qty <= 0:
             logger.error(f"{symbol} qty {qty} below minQty {f['min_qty']}")
-            return None
+            return {"error": f"qty {qty} below minQty {f['min_qty']} (margin too small for this coin)"}
         if f["min_notional"] and qty * price < f["min_notional"]:
             logger.error(
                 f"{symbol} notional {qty*price:.4f} below minNotional {f['min_notional']}"
             )
-            return None
+            return {"error": f"notional ${qty*price:.2f} below Binance minNotional ${f['min_notional']} (increase TRADE_MARGIN_PCT)"}
 
         order = await client.futures_create_order(
             symbol=symbol,
@@ -173,7 +173,7 @@ async def open_trade(symbol: str, tp_pct: float):
 
     except Exception as e:
         logger.exception(f"open_trade failed for {symbol}: {e}")
-        return None
+        return {"error": str(e)[:200]}
 
 
 async def _mark_price(client, symbol):
