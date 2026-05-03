@@ -26,7 +26,20 @@ class Config:
     TG_API_ID = _i("TG_API_ID")
     TG_API_HASH = os.getenv("TG_API_HASH")
     TG_SESSION = os.getenv("TG_SESSION", "sniper")
-    CHANNELS = [c.strip() for c in os.getenv("TG_CHANNELS", "").split(",") if c.strip()]
+    @staticmethod
+    def _parse_channels():
+        out = []
+        for c in os.getenv("TG_CHANNELS", "").split(","):
+            c = c.strip()
+            if not c:
+                continue
+            if c.lstrip("-").isdigit():
+                out.append(int(c))
+            else:
+                out.append(c)
+        return out
+
+    CHANNELS = _parse_channels.__func__()
 
     API_KEY = os.getenv("BINANCE_API_KEY")
     API_SECRET = os.getenv("BINANCE_SECRET")
