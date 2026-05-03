@@ -1,17 +1,15 @@
-import redis.asyncio as redis
-import json
-from app.core.config import Config
+import asyncio
 
-r = redis.Redis(
-    host=Config.REDIS_HOST,
-    port=Config.REDIS_PORT,
-    decode_responses=True
-)
+_queue: "asyncio.Queue[dict]" = asyncio.Queue()
 
-async def publish(channel, data):
-    await r.publish(channel, json.dumps(data))
 
-async def subscribe(channel):
-    pubsub = r.pubsub()
-    await pubsub.subscribe(channel)
-    return pubsub
+def get_queue() -> "asyncio.Queue[dict]":
+    return _queue
+
+
+async def publish(data: dict) -> None:
+    _queue.put_nowait(data)
+
+
+async def consume() -> dict:
+    return await _queue.get()

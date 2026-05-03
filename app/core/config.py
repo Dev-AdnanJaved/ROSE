@@ -3,31 +3,52 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _f(name, default=None):
+    v = os.getenv(name)
+    return float(v) if v not in (None, "") else default
+
+
+def _i(name, default=None):
+    v = os.getenv(name)
+    return int(v) if v not in (None, "") else default
+
+
+def _b(name, default=False):
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("true", "1", "yes", "y", "on")
+
+
 class Config:
 
-    TG_API_ID = int(os.getenv("TG_API_ID"))
+    TG_API_ID = _i("TG_API_ID")
     TG_API_HASH = os.getenv("TG_API_HASH")
-    TG_SESSION = os.getenv("TG_SESSION")
+    TG_SESSION = os.getenv("TG_SESSION", "sniper")
     CHANNELS = [c.strip() for c in os.getenv("TG_CHANNELS", "").split(",") if c.strip()]
 
     API_KEY = os.getenv("BINANCE_API_KEY")
     API_SECRET = os.getenv("BINANCE_SECRET")
 
-    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-    REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+    LOW_CAP_TP = _f("LOW_CAP_TP", 5.0)
+    MID_CAP_TP = _f("MID_CAP_TP", 3.0)
+    BIG_CAP_TP = _f("BIG_CAP_TP", 2.0)
 
-    LOW_CAP_TP = float(os.getenv("LOW_CAP_TP"))
-    MID_CAP_TP = float(os.getenv("MID_CAP_TP"))
-    BIG_CAP_TP = float(os.getenv("BIG_CAP_TP"))
+    LOW_CAP_SIZE_MAX = _f("LOW_CAP_SIZE_MAX", 500_000_000)
+    MID_CAP_SIZE_MAX = _f("MID_CAP_SIZE_MAX", 5_000_000_000)
 
-    LOW_CAP_SIZE_MAX = float(os.getenv("LOW_CAP_SIZE_MAX"))
-    MID_CAP_SIZE_MAX = float(os.getenv("MID_CAP_SIZE_MAX"))
+    STOP_LOSS = _f("STOP_LOSS", 2.0)
+    TRADE_SIZE = _f("TRADE_USDT_SIZE", 50.0)
 
-    STOP_LOSS = float(os.getenv("STOP_LOSS"))
-    TRADE_SIZE = float(os.getenv("TRADE_USDT_SIZE"))
+    MAX_LEVERAGE_CAP = _i("MAX_LEVERAGE_CAP", 125)
+    MARGIN_TYPE = os.getenv("MARGIN_TYPE", "ISOLATED").upper()
 
-    ENABLE_ANTI_SCAM = os.getenv("ENABLE_ANTI_SCAM", "false").lower() == "true"
+    USE_LIMIT_TP = _b("USE_LIMIT_TP", True)
+    TP_LIMIT_OFFSET_BPS = _f("TP_LIMIT_OFFSET_BPS", 0.0)
+
+    ENABLE_ANTI_SCAM = _b("ENABLE_ANTI_SCAM", False)
 
     COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
-    MARKETCAP_UPDATE_HOURS = float(os.getenv("MARKETCAP_UPDATE_HOURS", "4"))
-    MARKETCAP_MAX_PAGES = int(os.getenv("MARKETCAP_MAX_PAGES", "20"))
+    MARKETCAP_UPDATE_HOURS = _f("MARKETCAP_UPDATE_HOURS", 4.0)
+    MARKETCAP_MAX_PAGES = _i("MARKETCAP_MAX_PAGES", 20)

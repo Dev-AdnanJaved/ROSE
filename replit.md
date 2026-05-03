@@ -1,42 +1,57 @@
 # Telegram → Binance Futures Sniper Bot
 
 ## Overview
-A Python async bot that listens to Telegram channels for trading signals, parses coin symbols, classifies them by market cap, opens market BUY orders on Binance USDT-M Futures, and manages each position to TP or SL.
+Ultra-low-latency Python bot. Listens to Telegram channels for `#COIN BULLISH` signals, opens leveraged USDT-M futures longs on Binance with TP/SL bracket orders, and exits at TP via a reduceOnly LIMIT order (guaranteed-profit exit, no slippage).
 
-## Architecture
-- **Entry**: `run.py` → `app/main.py` runs three concurrent coroutines:
-  - `start_telegram` — Telethon client listening on configured channels.
-  - `start_router` — Redis pubsub consumer that handles each signal as a background task.
-  - `start_marketcap_updater` — periodic CoinGecko Pro fetch.
-- **Bus**: Redis pub/sub channel `signals` decouples ingestion from execution.
-- **Market data**: market caps cached in `marketcap_cache.json` and refreshed every `MARKETCAP_UPDATE_HOURS`.
-- **Trading**: `executor.open_trade` validates the symbol against Binance futures `exchangeInfo`, sizes the order from `TRADE_USDT_SIZE / markPrice` rounded to LOT_SIZE step. `position_manager.manage` polls mark price and closes with `reduceOnly` on TP/SL with retry/backoff.
+End-to-end target: signal → entry placed in well under 1 second (typical 150–300 ms after warmup).
+
+## Pipeline
+1. Telethon receives a channel message.
+2. Parser matches `#COIN BULLISH` (case-insensitive) and emits `{symbol: "COINUSDT"}`.
+3. In-process `asyncio.Queue` (no Redis hop) delivers to the router.
+4. Router runs `validate` + `classify` in parallel.
+5. `executor.open_trade`:
+   - sets max leverage (capped by `MAX_LEVERAGE_CAP`) and `ISOLATED` margin in parallel with the mark-price fetch,
+   - aborts if leverage/margin setup fails,
+   - sizes order = `TRADE_USDT_SIZE * leverage / mark_price`, rounded to LOT_SIZE,
+   - sends MARKET BUY,
+   - places reduceOnly LIMIT TP + reduceOnly STOP_MARKET SL **in parallel** via `asyncio.gather`.
+6. `position_manager.watch` polls TP/SL order status; when one fills, cancels the sibling.
+
+## Pre-warm at startup
+`app.main._prewarm` runs once before listening:
+- `symbols.warmup()` — single REST call each for `futures_exchange_info` + `futures_leverage_bracket`, populating filters, tick/step sizes, and max leverage for every USDT-M symbol. Bot exits if this fails.
+- `fetch_marketcaps()` — parallelizes all 20 CoinGecko Pro pages via `asyncio.gather` (one call per page). Refreshed every 4 h.
 
 ## Modules
-- `app/core/config.py` — env loader. All env vars required by the codebase.
+- `app/main.py` — pre-warm + run gateway, router, marketcap updater concurrently.
+- `app/core/config.py` — env loader with safe defaults.
 - `app/core/logger.py` — loguru, stderr + rotating `bot.log`.
-- `app/telegram/parser.py` — requires a signal keyword (BUY/LONG/ENTRY/SIGNAL/SNIPE/CALL) plus a 2–10 letter symbol; common words blacklisted.
+- `app/bus/redis_bus.py` — in-process `asyncio.Queue` (filename kept for compat; no Redis used).
+- `app/telegram/parser.py` — strict `#COIN BULLISH` regex.
 - `app/gateway/telegram_gateway.py` — Telethon listener.
-- `app/bus/redis_bus.py` — async Redis pub/sub.
-- `app/strategy/signal_router.py` — async dispatcher; deduplicates concurrent trades on the same symbol.
-- `app/strategy/validator.py` — anti-scam hook (extensible).
-- `app/strategy/tp_selector.py` — TP% by cap tier.
-- `app/strategy/position_manager.py` — TP/SL monitor with retrying close.
 - `app/exchange/binance_client.py` — singleton `AsyncClient`.
-- `app/exchange/executor.py` — symbol validation, sizing, market BUY.
-- `app/market/coin_classifier.py` — LOW/MID/BIG by `LOW_CAP_SIZE_MAX` / `MID_CAP_SIZE_MAX`.
+- `app/exchange/symbols.py` — pre-warmed exchange-info + leverage cache, per-symbol leverage/margin "already set" flags, qty/price rounding.
+- `app/exchange/executor.py` — leverage/margin setup, sizing, MARKET entry, parallel TP-LIMIT + SL-STOP.
+- `app/strategy/signal_router.py` — async dispatcher with per-symbol dedupe.
+- `app/strategy/validator.py` — symbol must exist on Binance USDT-M.
+- `app/strategy/tp_selector.py` — TP% by cap tier.
+- `app/strategy/position_manager.py` — fill-watch with sibling cancel.
+- `app/market/coin_classifier.py` — LOW/MID/BIG buckets.
 - `app/market/marketcap_cache.py` — JSON-backed cache, auto-loaded at import.
-- `app/market/marketcap_updater.py` — paginated CoinGecko Pro fetch with page cap.
+- `app/market/marketcap_updater.py` — parallel paginated CoinGecko fetch.
 
-## Environment Variables (`.env`)
-TG_API_ID, TG_API_HASH, TG_SESSION, TG_CHANNELS,
-BINANCE_API_KEY, BINANCE_SECRET,
-REDIS_HOST, REDIS_PORT,
-LOW_CAP_TP, MID_CAP_TP, BIG_CAP_TP,
-LOW_CAP_SIZE_MAX, MID_CAP_SIZE_MAX,
-STOP_LOSS, TRADE_USDT_SIZE,
-ENABLE_ANTI_SCAM,
-COINGECKO_API_KEY, MARKETCAP_UPDATE_HOURS, MARKETCAP_MAX_PAGES.
+## Environment Variables
+Required: `TG_API_ID`, `TG_API_HASH`, `TG_SESSION`, `TG_CHANNELS`, `BINANCE_API_KEY`, `BINANCE_SECRET`, `COINGECKO_API_KEY`.
+With defaults: `LOW_CAP_TP=5`, `MID_CAP_TP=3`, `BIG_CAP_TP=2`, `LOW_CAP_SIZE_MAX=5e8`, `MID_CAP_SIZE_MAX=5e9`, `STOP_LOSS=2`, `TRADE_USDT_SIZE=50`, `MAX_LEVERAGE_CAP=125`, `MARGIN_TYPE=ISOLATED`, `USE_LIMIT_TP=true`, `TP_LIMIT_OFFSET_BPS=0`, `ENABLE_ANTI_SCAM=false`, `MARKETCAP_UPDATE_HOURS=4`, `MARKETCAP_MAX_PAGES=20`.
+
+Add the new keys to `.env`:
+```
+MAX_LEVERAGE_CAP=125
+MARGIN_TYPE=ISOLATED
+USE_LIMIT_TP=true
+TP_LIMIT_OFFSET_BPS=0
+```
 
 ## Run
-`python run.py` (requires a running Redis on `REDIS_HOST:REDIS_PORT`).
+`python run.py` — Redis is no longer needed. First run will create the Telethon session file.

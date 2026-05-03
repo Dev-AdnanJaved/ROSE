@@ -18,11 +18,10 @@ async def start_telegram():
         try:
             symbol = parse_signal(event.raw_text)
             if symbol:
-                logger.info(f"Signal detected: {symbol}")
-                await publish("signals", {"symbol": symbol})
+                await publish({"symbol": symbol})
         except Exception as e:
-            logger.exception(f"Telegram handler error: {e}")
+            logger.exception(f"telegram handler error: {e}")
 
     await client.start()
-    logger.info(f"Telegram listening on channels: {Config.CHANNELS}")
+    logger.info(f"Telegram listening on: {Config.CHANNELS}")
     await client.run_until_disconnected()
