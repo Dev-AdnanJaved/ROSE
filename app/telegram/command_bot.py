@@ -52,31 +52,41 @@ async def start_command_bot():
         Config.TG_API_HASH,
     )
 
+    HELP_TEXT = (
+        "🤖 *Sniper Bot — Commands*\n\n"
+        "📊 *Monitoring*\n"
+        "`/current` — Show the trade currently running (symbol, entry, qty, "
+        "leverage, margin, TP target, open time). Replies _'No trade running'_ if idle.\n\n"
+        "`/balance` — Live futures wallet balance, your initial balance, and "
+        "total change since the bot started (USDT and %).\n\n"
+        "`/report` — Full trade history: initial vs current balance, total PnL, "
+        "win rate, plus the last 15 trades with balance before → after.\n\n"
+        "`/status` — Bot health: trading slot busy/free, open Binance positions, "
+        "channels being watched, sizing mode, leverage cap & ladder, SL mode.\n\n"
+        "ℹ️ *Info*\n"
+        "`/start` — Welcome screen.\n"
+        "`/help` — This message.\n\n"
+        "🔔 *Auto-notifications*\n"
+        "You'll automatically get pinged for every trade event:\n"
+        "• 🟢 Trade opened (with full details + latency)\n"
+        "• 🎯 Take-profit hit\n"
+        "• 🛑 Stop-loss hit\n"
+        "• 🔒 Position closed (manual / liquidation)\n"
+        "• ⏭️ Signal dropped (another trade in progress)\n"
+        "• ⚠️ Validation failed / ❌ Open failed / 💥 Errors"
+    )
+
     @_client.on(events.NewMessage(pattern=r"^/start"))
     async def _start(event):
         if not _is_authorized(event.sender_id):
             return
-        await event.reply(
-            "👋 Sniper Bot ready.\n\n"
-            "Commands:\n"
-            "/current — show running trade\n"
-            "/balance — current futures balance\n"
-            "/report — full trade history & PnL\n"
-            "/status — bot status\n"
-            "/help — this message"
-        )
+        await event.reply(HELP_TEXT, parse_mode="markdown")
 
     @_client.on(events.NewMessage(pattern=r"^/help"))
     async def _help(event):
         if not _is_authorized(event.sender_id):
             return
-        await event.reply(
-            "Commands:\n"
-            "/current — show running trade\n"
-            "/balance — current futures balance\n"
-            "/report — full trade history & PnL\n"
-            "/status — bot status"
-        )
+        await event.reply(HELP_TEXT, parse_mode="markdown")
 
     @_client.on(events.NewMessage(pattern=r"^/current"))
     async def _current(event):
