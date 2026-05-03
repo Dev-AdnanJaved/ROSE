@@ -1,0 +1,23 @@
+2026-05-03 12:18:35.149 | INFO     | app.exchange.account:detect_position_mode:21 - Account position mode: HEDGE
+2026-05-03 12:18:35.757 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 19 -> HTTP 400
+2026-05-03 12:18:35.761 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 17 -> HTTP 400
+2026-05-03 12:18:35.809 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 20 -> HTTP 400
+2026-05-03 12:18:35.837 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 7 -> HTTP 400
+2026-05-03 12:18:35.839 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 1 -> HTTP 400
+2026-05-03 12:18:35.839 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 4 -> HTTP 400
+2026-05-03 12:18:35.840 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 10 -> HTTP 400
+2026-05-03 12:18:35.842 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 18 -> HTTP 400
+2026-05-03 12:18:35.843 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 6 -> HTTP 400
+2026-05-03 12:18:35.844 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 3 -> HTTP 400
+2026-05-03 12:18:35.844 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 14 -> HTTP 400
+2026-05-03 12:18:35.845 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 16 -> HTTP 400
+2026-05-03 12:18:35.848 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 8 -> HTTP 400
+2026-05-03 12:18:35.849 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 11 -> HTTP 400
+2026-05-03 12:18:35.851 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 9 -> HTTP 400
+2026-05-03 12:18:35.857 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 13 -> HTTP 400
+2026-05-03 12:18:35.857 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 5 -> HTTP 400
+2026-05-03 12:18:35.867 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 12 -> HTTP 400
+2026-05-03 12:18:35.868 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 15 -> HTTP 400
+2026-05-03 12:18:35.878 | ERROR    | app.market.marketcap_updater:_fetch_page:31 - CoinGecko page 2 -> HTTP 400
+2026-05-03 12:18:35.880 | WARNING  | app.market.marketcap_updater:fetch_marketcaps:73 - Market cap fetch returned no data
+2026-05-03 12:18:35.880 | INFO     | app.main:_prewarm:67 - Pre-warm complete

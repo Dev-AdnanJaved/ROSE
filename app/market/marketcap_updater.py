@@ -8,20 +8,19 @@ PRO_URL = "https://pro-api.coingecko.com/api/v3/coins/markets"
 FREE_URL = "https://api.coingecko.com/api/v3/coins/markets"
 
 
-def _key_valid() -> bool:
+def _key_info():
+    """Returns (url, headers, mode_name). Auto-detects pro vs demo (free) key."""
     k = (Config.COINGECKO_API_KEY or "").strip()
-    return bool(k) and k.lower() not in ("your_key_here", "none", "null")
+    if not k or k.lower() in ("your_key_here", "none", "null"):
+        return FREE_URL, {}, "public"
+    # CoinGecko free/demo keys start with 'CG-'. Pro keys do not.
+    if k.startswith("CG-"):
+        return FREE_URL, {"x-cg-demo-api-key": k}, "demo"
+    return PRO_URL, {"x-cg-pro-api-key": k}, "pro"
 
 
-async def _fetch_page(session, page):
+async def _fetch_page(session, page, url, headers):
     params = {"vs_currency": "usd", "per_page": 250, "page": page}
-    headers = {}
-    if _key_valid():
-        url = PRO_URL
-        headers["x-cg-pro-api-key"] = Config.COINGECKO_API_KEY
-    else:
-        url = FREE_URL
-
     try:
         async with session.get(url, params=params, headers=headers, timeout=30) as r:
             if r.status == 429:
@@ -37,23 +36,26 @@ async def _fetch_page(session, page):
 
 
 async def fetch_marketcaps():
-    using_free = not _key_valid()
+    url, headers, mode = _key_info()
+    using_free = mode in ("public", "demo")
     # Free endpoint is rate-limited (~10-30 req/min). Cap pages and serialize.
     max_pages = min(Config.MARKETCAP_MAX_PAGES, 4) if using_free else Config.MARKETCAP_MAX_PAGES
 
-    if using_free:
-        logger.info(f"CoinGecko: using FREE endpoint (capped to {max_pages} pages, serialized)")
+    logger.info(
+        f"CoinGecko: mode={mode} url={url} pages={max_pages} "
+        f"{'(serialized)' if using_free else '(parallel)'}"
+    )
 
     all_caps: dict[str, float] = {}
     async with aiohttp.ClientSession() as session:
         if using_free:
             results = []
             for p in range(1, max_pages + 1):
-                results.append(await _fetch_page(session, p))
+                results.append(await _fetch_page(session, p, url, headers))
                 await asyncio.sleep(2.0)
         else:
             results = await asyncio.gather(
-                *[_fetch_page(session, p) for p in range(1, max_pages + 1)],
+                *[_fetch_page(session, p, url, headers) for p in range(1, max_pages + 1)],
                 return_exceptions=True,
             )
 
