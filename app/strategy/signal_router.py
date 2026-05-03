@@ -8,6 +8,7 @@ from app.exchange.executor import open_trade
 from app.exchange.account import get_available_usdt
 from app.strategy.position_manager import watch
 from app.strategy import trade_history
+from app.telegram.command_bot import notify_bg
 from app.core.logger import logger
 
 _busy = False
@@ -36,12 +37,55 @@ async def _release():
         _current_trade = None
 
 
+def _fmt_open(trade, tp_pct, balance_before):
+    sl_txt = "✅" if trade.get("sl_order_id") else "❌ MISSING"
+    tp_txt = "✅" if trade.get("tp_order_id") else "❌ MISSING"
+    entry = trade["entry"]
+    tp_price = entry * (1 + tp_pct / 100)
+    return (
+        f"🟢 *TRADE OPENED*\n"
+        f"Symbol: `{trade['symbol']}`\n"
+        f"Side: `LONG`\n"
+        f"Entry: `{entry}`\n"
+        f"Qty: `{trade['qty']}`\n"
+        f"Leverage: `{trade['leverage']}x`\n"
+        f"Margin: `{trade.get('margin', 0):.2f}` USDT\n"
+        f"Notional: `{trade['qty'] * entry:.2f}` USDT\n"
+        f"TP target: `{tp_pct}%` (≈ `{tp_price:.6f}`)\n"
+        f"TP order: {tp_txt}\n"
+        f"SL order: {sl_txt}\n"
+        f"Balance before: `{balance_before:.2f}` USDT"
+    )
+
+
+def _fmt_close(symbol, result, balance_before, balance_after, duration_sec):
+    pnl = balance_after - balance_before
+    pct = (pnl / balance_before * 100) if balance_before else 0
+    if result == "TP":
+        head = "🎯 *TAKE PROFIT HIT*"
+    elif result == "SL":
+        head = "🛑 *STOP LOSS HIT*"
+    elif result == "CLOSED":
+        head = "🔒 *POSITION CLOSED*"
+    else:
+        head = f"⚠️ *TRADE ENDED ({result})*"
+    sign = "✅" if pnl >= 0 else "❌"
+    return (
+        f"{head}\n"
+        f"Symbol: `{symbol}`\n"
+        f"{sign} PnL: `{pnl:+.4f}` USDT (`{pct:+.2f}%`)\n"
+        f"Balance: `{balance_before:.2f} → {balance_after:.2f}` USDT\n"
+        f"Duration: `{duration_sec:.1f}s`"
+    )
+
+
 async def _handle(symbol: str):
     t0 = time.perf_counter()
     try:
         valid, cap = await asyncio.gather(validate(symbol), classify(symbol))
         if not valid:
             logger.info(f"{symbol} failed validation")
+            notify_bg(f"⚠️ `{symbol}` failed validation — skipped")
             return
 
         tp = get_tp(cap)
@@ -50,6 +94,7 @@ async def _handle(symbol: str):
         balance_before = await get_available_usdt()
         trade = await open_trade(symbol, tp)
         if not trade:
+            notify_bg(f"❌ `{symbol}` — failed to open trade (see logs)")
             return
 
         if balance_before <= 0:
@@ -67,16 +112,21 @@ async def _handle(symbol: str):
 
         elapsed_ms = (time.perf_counter() - t0) * 1000
         logger.info(f"{symbol} entry placed in {elapsed_ms:.0f}ms — watching to close")
+        notify_bg(_fmt_open(trade, tp, balance_before) + f"\nLatency: `{elapsed_ms:.0f}ms`")
 
+        opened_at = time.time()
         result = await watch(trade)
         await asyncio.sleep(1.0)
         balance_after = await get_available_usdt(force_refresh=True)
+        duration = time.time() - opened_at
         await trade_history.trade_closed(result=result, balance_after=balance_after)
         logger.info(
             f"{symbol} closed ({result}) — balance {balance_before:.2f} → {balance_after:.2f}"
         )
+        notify_bg(_fmt_close(symbol, result, balance_before, balance_after, duration))
     except Exception as e:
         logger.exception(f"Error handling {symbol}: {e}")
+        notify_bg(f"💥 `{symbol}` ERROR: `{str(e)[:200]}`")
         try:
             bal = await get_available_usdt(force_refresh=True)
             await trade_history.trade_closed(result="ERROR", balance_after=bal)
@@ -96,5 +146,6 @@ async def start_router():
         claimed = await _try_claim(symbol)
         if not claimed:
             logger.info(f"Signal {symbol} dropped — {_current_trade} still open")
+            notify_bg(f"⏭️ Signal `{symbol}` dropped — `{_current_trade}` still open")
             continue
         asyncio.create_task(_handle(symbol))

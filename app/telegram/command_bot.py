@@ -9,6 +9,28 @@ from app.strategy import trade_history, signal_router
 _client: TelegramClient | None = None
 
 
+async def notify(text: str):
+    """Push a message to all admin chats. Safe to call even if bot isn't running."""
+    if _client is None or not Config.TG_BOT_ADMIN_IDS:
+        return
+    for admin_id in Config.TG_BOT_ADMIN_IDS:
+        try:
+            await _client.send_message(admin_id, text, parse_mode="markdown")
+        except Exception as e:
+            logger.warning(f"notify {admin_id} failed: {e}")
+
+
+def notify_bg(text: str):
+    """Fire-and-forget notify so trade flow never blocks on Telegram."""
+    if _client is None:
+        return
+    import asyncio as _a
+    try:
+        _a.create_task(notify(text))
+    except RuntimeError:
+        pass
+
+
 def _is_authorized(sender_id) -> bool:
     if not Config.TG_BOT_ADMIN_IDS:
         return True
