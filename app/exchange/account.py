@@ -6,6 +6,51 @@ from app.core.logger import logger
 
 _balance_cache: dict = {"value": 0.0, "ts": 0.0}
 _lock = asyncio.Lock()
+_hedge_mode: bool | None = None
+
+
+async def detect_position_mode() -> bool:
+    """Detects whether the futures account is in hedge (dual-side) mode."""
+    global _hedge_mode
+    if _hedge_mode is not None:
+        return _hedge_mode
+    try:
+        client = await get_client()
+        res = await client.futures_get_position_mode()
+        _hedge_mode = bool(res.get("dualSidePosition"))
+        logger.info(f"Account position mode: {'HEDGE' if _hedge_mode else 'ONE-WAY'}")
+    except Exception as e:
+        _hedge_mode = False
+        logger.warning(f"position mode detect failed, assuming ONE-WAY: {e}")
+    return _hedge_mode
+
+
+def is_hedge_mode() -> bool:
+    return bool(_hedge_mode)
+
+
+async def has_open_positions() -> bool:
+    try:
+        client = await get_client()
+        positions = await client.futures_position_information()
+        for p in positions:
+            if float(p.get("positionAmt", 0)) != 0:
+                return True
+    except Exception as e:
+        logger.warning(f"open-position check failed: {e}")
+    return False
+
+
+async def get_open_position_symbols() -> list[str]:
+    try:
+        client = await get_client()
+        positions = await client.futures_position_information()
+        return [
+            p["symbol"] for p in positions
+            if float(p.get("positionAmt", 0)) != 0
+        ]
+    except Exception:
+        return []
 
 
 async def get_available_usdt(force_refresh: bool = False) -> float:

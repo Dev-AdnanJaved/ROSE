@@ -8,51 +8,57 @@ from app.exchange.executor import open_trade
 from app.strategy.position_manager import watch
 from app.core.logger import logger
 
-_trade_lock = asyncio.Lock()
+_busy = False
+_busy_lock = asyncio.Lock()
 _current_trade: str | None = None
 
 
 def is_trading() -> bool:
-    return _current_trade is not None
+    return _busy
+
+
+async def _try_claim(symbol: str) -> bool:
+    """Atomic single-trade gate. Returns True if this signal got the slot."""
+    global _busy, _current_trade
+    async with _busy_lock:
+        if _busy:
+            return False
+        _busy = True
+        _current_trade = symbol
+        return True
+
+
+async def _release():
+    global _busy, _current_trade
+    async with _busy_lock:
+        _busy = False
+        _current_trade = None
 
 
 async def _handle(symbol: str):
-    global _current_trade
-
-    if _trade_lock.locked() or _current_trade is not None:
-        logger.info(
-            f"{symbol} skipped — trade already in progress ({_current_trade})"
-        )
-        return
-
-    async with _trade_lock:
-        if _current_trade is not None:
-            logger.info(f"{symbol} skipped — {_current_trade} still active")
+    t0 = time.perf_counter()
+    try:
+        valid, cap = await asyncio.gather(validate(symbol), classify(symbol))
+        if not valid:
+            logger.info(f"{symbol} failed validation")
             return
-        _current_trade = symbol
-        t0 = time.perf_counter()
-        try:
-            valid, cap = await asyncio.gather(validate(symbol), classify(symbol))
-            if not valid:
-                logger.info(f"{symbol} failed validation")
-                return
 
-            tp = get_tp(cap)
-            logger.info(f"{symbol} cap={cap} tp={tp}%")
+        tp = get_tp(cap)
+        logger.info(f"{symbol} cap={cap} tp={tp}%")
 
-            trade = await open_trade(symbol, tp)
-            if not trade:
-                return
+        trade = await open_trade(symbol, tp)
+        if not trade:
+            return
 
-            elapsed_ms = (time.perf_counter() - t0) * 1000
-            logger.info(f"{symbol} entry placed in {elapsed_ms:.0f}ms — watching to close")
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        logger.info(f"{symbol} entry placed in {elapsed_ms:.0f}ms — watching to close")
 
-            result = await watch(trade)
-            logger.info(f"{symbol} closed ({result}) — ready for next signal")
-        except Exception as e:
-            logger.exception(f"Error handling {symbol}: {e}")
-        finally:
-            _current_trade = None
+        result = await watch(trade)
+        logger.info(f"{symbol} closed ({result}) — ready for next signal")
+    except Exception as e:
+        logger.exception(f"Error handling {symbol}: {e}")
+    finally:
+        await _release()
 
 
 async def start_router():
@@ -62,9 +68,8 @@ async def start_router():
         symbol = msg.get("symbol")
         if not symbol:
             continue
-        if _current_trade is not None:
-            logger.info(
-                f"Signal {symbol} dropped — {_current_trade} still open"
-            )
+        claimed = await _try_claim(symbol)
+        if not claimed:
+            logger.info(f"Signal {symbol} dropped — {_current_trade} still open")
             continue
         asyncio.create_task(_handle(symbol))

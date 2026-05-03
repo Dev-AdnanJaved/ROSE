@@ -1,9 +1,21 @@
 import asyncio
 from app.exchange.binance_client import get_client
 from app.exchange import symbols
-from app.exchange.account import get_available_usdt, invalidate_balance_cache
+from app.exchange.account import get_available_usdt, invalidate_balance_cache, is_hedge_mode
 from app.core.config import Config
 from app.core.logger import logger
+
+
+def _side_kwargs():
+    """Adds positionSide=LONG when account is in hedge mode."""
+    return {"positionSide": "LONG"} if is_hedge_mode() else {}
+
+
+def _close_kwargs():
+    """For closing a long: hedge mode needs positionSide=LONG; one-way uses reduceOnly."""
+    if is_hedge_mode():
+        return {"positionSide": "LONG"}
+    return {"reduceOnly": True}
 
 
 async def _ensure_leverage_and_margin(client, symbol: str, leverage: int) -> int:
@@ -138,6 +150,7 @@ async def open_trade(symbol: str, tp_pct: float):
             type="MARKET",
             quantity=qty,
             newOrderRespType="RESULT",
+            **_side_kwargs(),
         )
 
         entry = _extract_avg(order, fallback=price)
@@ -213,12 +226,14 @@ async def _place_tp(client, symbol, qty, tp_price, attempts=4):
             if Config.USE_LIMIT_TP:
                 res = await client.futures_create_order(
                     symbol=symbol, side="SELL", type="LIMIT",
-                    timeInForce="GTC", quantity=qty, price=tp_price, reduceOnly=True,
+                    timeInForce="GTC", quantity=qty, price=tp_price,
+                    **_close_kwargs(),
                 )
             else:
+                kw = {"positionSide": "LONG", "closePosition": True} if is_hedge_mode() else {"closePosition": True}
                 res = await client.futures_create_order(
                     symbol=symbol, side="SELL", type="TAKE_PROFIT_MARKET",
-                    stopPrice=tp_price, closePosition=True,
+                    stopPrice=tp_price, **kw,
                 )
             oid = res.get("orderId")
             logger.info(f"{symbol} TP @ {tp_price} placed (id={oid}, attempt {i})")
@@ -235,9 +250,10 @@ async def _place_sl(client, symbol, sl_price, attempts=5):
     delay = 0.3
     for i in range(1, attempts + 1):
         try:
+            kw = {"positionSide": "LONG", "closePosition": True} if is_hedge_mode() else {"closePosition": True}
             res = await client.futures_create_order(
                 symbol=symbol, side="SELL", type="STOP_MARKET",
-                stopPrice=sl_price, closePosition=True,
+                stopPrice=sl_price, **kw,
             )
             oid = res.get("orderId")
             logger.info(f"{symbol} SL @ {sl_price} placed (id={oid}, attempt {i})")
@@ -253,17 +269,36 @@ async def _place_sl(client, symbol, sl_price, attempts=5):
 async def _emergency_close(client, symbol, qty):
     for i in range(1, 6):
         try:
+            actual_qty = await _current_position_qty(client, symbol)
+            close_qty = actual_qty if actual_qty > 0 else qty
+            if close_qty <= 0:
+                logger.warning(f"{symbol} no position to close")
+                return True
             await client.futures_create_order(
                 symbol=symbol, side="SELL", type="MARKET",
-                quantity=qty, reduceOnly=True,
+                quantity=close_qty, **_close_kwargs(),
             )
-            logger.warning(f"{symbol} emergency MARKET close succeeded (attempt {i})")
+            logger.warning(f"{symbol} emergency MARKET close succeeded qty={close_qty} (attempt {i})")
             return True
         except Exception as e:
             logger.error(f"{symbol} emergency close attempt {i} failed: {e}")
             await asyncio.sleep(min(0.5 * i, 3.0))
     logger.critical(f"{symbol} EMERGENCY CLOSE FAILED — MANUAL INTERVENTION REQUIRED")
     return False
+
+
+async def _current_position_qty(client, symbol):
+    try:
+        positions = await client.futures_position_information(symbol=symbol)
+        for p in positions:
+            amt = float(p.get("positionAmt", 0))
+            if is_hedge_mode() and p.get("positionSide") != "LONG":
+                continue
+            if amt > 0:
+                return amt
+    except Exception:
+        pass
+    return 0.0
 
 
 async def _compute_sl_price(client, symbol, entry, leverage):
@@ -295,7 +330,9 @@ async def _fetch_liquidation_price(client, symbol):
         positions = await client.futures_position_information(symbol=symbol)
         for p in positions:
             amt = float(p.get("positionAmt", 0))
-            if amt != 0:
+            if is_hedge_mode() and p.get("positionSide") != "LONG":
+                continue
+            if amt > 0:
                 liq = float(p.get("liquidationPrice", 0))
                 if liq > 0:
                     return liq
