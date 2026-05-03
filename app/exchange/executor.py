@@ -72,18 +72,35 @@ async def _set_leverage_with_fallback(client, symbol, leverage) -> int:
 
 
 async def _set_margin(client, symbol) -> bool:
-    try:
-        await client.futures_change_margin_type(
-            symbol=symbol, marginType=Config.MARGIN_TYPE
-        )
+    """Set margin type. Tries multiple call styles to handle python-binance quirks."""
+    margin_type = Config.MARGIN_TYPE
+
+    async def _try(call):
+        await call()
         symbols.mark_margin_set(symbol)
         return True
-    except Exception as e:
-        msg = str(e)
-        if "No need to change margin type" in msg or "-4046" in msg:
-            symbols.mark_margin_set(symbol)
-            return True
-        raise
+
+    attempts = [
+        lambda: client.futures_change_margin_type(symbol=symbol, marginType=margin_type),
+        lambda: client._request_futures_api(
+            "post", "marginType", True,
+            data={"symbol": symbol, "marginType": margin_type},
+        ),
+    ]
+
+    last_err = None
+    for call in attempts:
+        try:
+            return await _try(call)
+        except Exception as e:
+            msg = str(e)
+            if "No need to change margin type" in msg or "-4046" in msg:
+                symbols.mark_margin_set(symbol)
+                return True
+            last_err = e
+            logger.warning(f"{symbol} margin attempt failed ({msg[:120]}); trying next style")
+
+    raise last_err if last_err else RuntimeError("margin setup failed")
 
 
 async def open_trade(symbol: str, tp_pct: float):
