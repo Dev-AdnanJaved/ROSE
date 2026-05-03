@@ -1,11 +1,22 @@
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from app.core.config import Config
 from app.telegram.parser import parse_signal
 from app.bus.redis_bus import publish
 from app.core.logger import logger
 
+
+def _build_session():
+    """If TG_SESSION looks like a session string (long), use StringSession.
+    Otherwise treat it as a SQLite session filename."""
+    s = Config.TG_SESSION or "sniper"
+    if len(s) > 50:
+        return StringSession(s)
+    return s
+
+
 client = TelegramClient(
-    Config.TG_SESSION,
+    _build_session(),
     Config.TG_API_ID,
     Config.TG_API_HASH,
 )
