@@ -116,7 +116,7 @@ async def open_trade(symbol: str, tp_pct: float):
         entry = _extract_avg(order, fallback=price)
         logger.info(f"OPENED {symbol} qty={qty} entry={entry} lev={max_lev}x")
 
-        tp_id, sl_id = await _place_exit_brackets(client, symbol, entry, qty, tp_pct)
+        tp_id, sl_id = await _place_exit_brackets(client, symbol, entry, qty, tp_pct, max_lev)
 
         return {
             "symbol": symbol,
@@ -148,14 +148,11 @@ def _extract_avg(order, fallback):
     return fallback
 
 
-async def _place_exit_brackets(client, symbol, entry, qty, tp_pct):
+async def _place_exit_brackets(client, symbol, entry, qty, tp_pct, leverage):
     tp_price = entry * (1 + tp_pct / 100)
     if Config.TP_LIMIT_OFFSET_BPS:
         tp_price *= 1 + Config.TP_LIMIT_OFFSET_BPS / 10_000
     tp_price = symbols.round_price(symbol, tp_price)
-
-    sl_price = entry * (1 - Config.STOP_LOSS / 100)
-    sl_price = symbols.round_price(symbol, sl_price)
 
     if Config.USE_LIMIT_TP:
         tp_coro = client.futures_create_order(
@@ -176,15 +173,21 @@ async def _place_exit_brackets(client, symbol, entry, qty, tp_pct):
             closePosition=True,
         )
 
-    sl_coro = client.futures_create_order(
+    sl_price_task = asyncio.create_task(_compute_sl_price(client, symbol, entry, leverage))
+    tp_task = asyncio.create_task(tp_coro)
+
+    sl_price = await sl_price_task
+    sl_price = symbols.round_price(symbol, sl_price)
+
+    sl_task = asyncio.create_task(client.futures_create_order(
         symbol=symbol,
         side="SELL",
         type="STOP_MARKET",
         stopPrice=sl_price,
         closePosition=True,
-    )
+    ))
 
-    tp_res, sl_res = await asyncio.gather(tp_coro, sl_coro, return_exceptions=True)
+    tp_res, sl_res = await asyncio.gather(tp_task, sl_task, return_exceptions=True)
 
     tp_id = sl_id = None
     if isinstance(tp_res, Exception):
@@ -200,3 +203,41 @@ async def _place_exit_brackets(client, symbol, entry, qty, tp_pct):
         logger.info(f"{symbol} SL @ {sl_price} (id={sl_id})")
 
     return tp_id, sl_id
+
+
+async def _compute_sl_price(client, symbol, entry, leverage):
+    """SL just above the actual liquidation price (LIQUIDATION mode), or fixed % (FIXED)."""
+    if Config.SL_MODE == "FIXED":
+        return entry * (1 - Config.STOP_LOSS / 100)
+
+    liq = await _fetch_liquidation_price(client, symbol)
+    if liq and liq > 0:
+        buffer = Config.SL_LIQUIDATION_BUFFER_PCT / 100
+        sl = liq * (1 + buffer)
+        if sl >= entry:
+            logger.warning(
+                f"{symbol} liquidation-based SL ({sl}) >= entry ({entry}); "
+                f"falling back to fixed STOP_LOSS"
+            )
+            return entry * (1 - Config.STOP_LOSS / 100)
+        logger.info(f"{symbol} liq={liq} -> SL={sl} (buffer {Config.SL_LIQUIDATION_BUFFER_PCT}%)")
+        return sl
+
+    approx_liq = entry * (1 - 1.0 / max(leverage, 1))
+    sl = approx_liq * (1 + Config.SL_LIQUIDATION_BUFFER_PCT / 100)
+    logger.warning(f"{symbol} no liq price from Binance; using approx SL={sl}")
+    return sl
+
+
+async def _fetch_liquidation_price(client, symbol):
+    try:
+        positions = await client.futures_position_information(symbol=symbol)
+        for p in positions:
+            amt = float(p.get("positionAmt", 0))
+            if amt != 0:
+                liq = float(p.get("liquidationPrice", 0))
+                if liq > 0:
+                    return liq
+    except Exception as e:
+        logger.warning(f"{symbol} liquidation price fetch failed: {e}")
+    return None

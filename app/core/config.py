@@ -47,6 +47,9 @@ class Config:
     USE_LIMIT_TP = _b("USE_LIMIT_TP", True)
     TP_LIMIT_OFFSET_BPS = _f("TP_LIMIT_OFFSET_BPS", 0.0)
 
+    SL_MODE = os.getenv("SL_MODE", "LIQUIDATION").upper()
+    SL_LIQUIDATION_BUFFER_PCT = _f("SL_LIQUIDATION_BUFFER_PCT", 0.5)
+
     ENABLE_ANTI_SCAM = _b("ENABLE_ANTI_SCAM", False)
 
     COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
