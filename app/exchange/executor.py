@@ -1,6 +1,7 @@
 import asyncio
 from app.exchange.binance_client import get_client
 from app.exchange import symbols
+from app.exchange.account import get_available_usdt, invalidate_balance_cache
 from app.core.config import Config
 from app.core.logger import logger
 
@@ -81,18 +82,37 @@ async def open_trade(symbol: str, tp_pct: float):
 
     try:
         mark_task = asyncio.create_task(_mark_price(client, symbol))
+        bal_task = asyncio.create_task(get_available_usdt()) \
+            if Config.SIZING_MODE == "PERCENT" else None
         applied_lev = await _ensure_leverage_and_margin(client, symbol, max_lev)
         if applied_lev <= 0:
             mark_task.cancel()
+            if bal_task:
+                bal_task.cancel()
             return None
         if applied_lev != max_lev:
             max_lev = applied_lev
         price = await mark_task
         if price <= 0:
             logger.error(f"{symbol} bad mark price")
+            if bal_task:
+                bal_task.cancel()
             return None
 
-        notional = Config.TRADE_SIZE * max_lev
+        if Config.SIZING_MODE == "PERCENT":
+            balance = await bal_task
+            if balance <= 0:
+                logger.error(f"{symbol} no available USDT balance")
+                return None
+            margin = balance * Config.TRADE_MARGIN_PCT / 100
+            logger.info(
+                f"{symbol} balance={balance:.2f} USDT × {Config.TRADE_MARGIN_PCT}% "
+                f"= margin {margin:.2f} USDT"
+            )
+        else:
+            margin = Config.TRADE_SIZE
+
+        notional = margin * max_lev
         raw_qty = notional / price
         qty = symbols.round_qty(symbol, raw_qty)
 
@@ -114,7 +134,8 @@ async def open_trade(symbol: str, tp_pct: float):
         )
 
         entry = _extract_avg(order, fallback=price)
-        logger.info(f"OPENED {symbol} qty={qty} entry={entry} lev={max_lev}x")
+        invalidate_balance_cache()
+        logger.info(f"OPENED {symbol} qty={qty} entry={entry} lev={max_lev}x margin={margin:.2f}")
 
         tp_id, sl_id = await _place_exit_brackets(client, symbol, entry, qty, tp_pct, max_lev)
 
