@@ -1,0 +1,24 @@
+2026-05-03 15:12:26.657 | INFO     | app.exchange.symbols:warmup:55 - Symbol cache warmed: 563 USDT-M futures symbols
+2026-05-03 15:12:26.791 | INFO     | app.exchange.account:detect_position_mode:21 - Account position mode: HEDGE
+2026-05-03 15:12:27.059 | INFO     | app.market.marketcap_updater:fetch_marketcaps:44 - CoinGecko: mode=demo url=https://api.coingecko.com/api/v3/coins/markets pages=4 (serialized)
+2026-05-03 15:12:36.305 | INFO     | app.market.marketcap_updater:fetch_marketcaps:73 - Market caps updated (977 coins)
+2026-05-03 15:12:36.306 | INFO     | app.main:_prewarm:67 - Pre-warm complete
+2026-05-03 15:12:36.306 | INFO     | app.strategy.signal_router:start_router:141 - Signal router started (single-trade mode)
+2026-05-03 15:12:37.597 | INFO     | app.gateway.telegram_gateway:start_telegram:37 - Telegram listening on: [-1001969210392]
+2026-05-03 15:12:42.582 | INFO     | app.telegram.command_bot:start_command_bot:198 - Command bot online as @RoseSignalTracker_Bot
+2026-05-03 19:12:36.329 | INFO     | app.market.marketcap_updater:fetch_marketcaps:44 - CoinGecko: mode=demo url=https://api.coingecko.com/api/v3/coins/markets pages=4 (serialized)
+2026-05-03 19:12:45.567 | INFO     | app.market.marketcap_updater:fetch_marketcaps:73 - Market caps updated (977 coins)
+2026-05-03 23:12:45.569 | INFO     | app.market.marketcap_updater:fetch_marketcaps:44 - CoinGecko: mode=demo url=https://api.coingecko.com/api/v3/coins/markets pages=4 (serialized)
+2026-05-03 23:12:54.748 | INFO     | app.market.marketcap_updater:fetch_marketcaps:73 - Market caps updated (977 coins)
+2026-05-04 03:12:54.751 | INFO     | app.market.marketcap_updater:fetch_marketcaps:44 - CoinGecko: mode=demo url=https://api.coingecko.com/api/v3/coins/markets pages=4 (serialized)
+2026-05-04 03:13:03.696 | INFO     | app.market.marketcap_updater:fetch_marketcaps:73 - Market caps updated (977 coins)
+2026-05-04 07:13:03.704 | INFO     | app.market.marketcap_updater:fetch_marketcaps:44 - CoinGecko: mode=demo url=https://api.coingecko.com/api/v3/coins/markets pages=4 (serialized)
+2026-05-04 07:13:13.099 | INFO     | app.market.marketcap_updater:fetch_marketcaps:73 - Market caps updated (977 coins)
+2026-05-04 11:13:13.102 | INFO     | app.market.marketcap_updater:fetch_marketcaps:44 - CoinGecko: mode=demo url=https://api.coingecko.com/api/v3/coins/markets pages=4 (serialized)
+2026-05-04 11:13:23.130 | INFO     | app.market.marketcap_updater:fetch_marketcaps:73 - Market caps updated (977 coins)
+2026-05-04 13:36:21.140 | INFO     | app.telegram.parser:parse_signal:20 - Parsed BULLISH signal: MUBARAKUSDT
+2026-05-04 13:36:21.141 | INFO     | app.strategy.signal_router:_handle:92 - MUBARAKUSDT cap=LOW tp=5.0%
+2026-05-04 13:36:21.434 | WARNING  | app.exchange.executor:_set_margin:101 - MUBARAKUSDT margin attempt failed (APIError(code=-1102): Mandatory parameter 'margintype' was not sent, was empty/null, or malformed.); trying next style
+2026-05-04 13:36:21.463 | INFO     | app.exchange.executor:_set_leverage_with_fallback:64 - MUBARAKUSDT leverage set to 50x
+2026-05-04 13:36:21.567 | WARNING  | app.exchange.executor:_set_margin:101 - MUBARAKUSDT margin attempt failed (APIError(code=-1102): Mandatory parameter 'margintype' was not sent, was empty/null, or malformed.); trying next style
+2026-05-04 13:36:21.567 | ERROR    | app.exchange.executor:_ensure_leverage_and_margin:36 - MUBARAKUSDT margin setup failed: APIError(code=-1102): Mandatory parameter 'margintype' was not sent, was empty/null, or malformed. — aborting trade

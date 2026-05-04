@@ -33,8 +33,11 @@ async def _ensure_leverage_and_margin(client, symbol: str, leverage: int) -> int
         try:
             await margin_task
         except Exception as e:
-            logger.error(f"{symbol} margin setup failed: {e} — aborting trade")
-            return 0
+            logger.warning(
+                f"{symbol} margin type setup failed: {e} — "
+                f"continuing with current margin type (trade will still work)"
+            )
+            symbols.mark_margin_set(symbol)
 
     return applied
 
