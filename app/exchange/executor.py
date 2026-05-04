@@ -258,7 +258,10 @@ async def _place_tp(client, symbol, qty, tp_price, attempts=4):
                     symbol=symbol, side="SELL", type="TAKE_PROFIT_MARKET",
                     stopPrice=tp_price, **kw,
                 )
-            oid = res.get("orderId")
+            oid = res.get("orderId") or res.get("orderID") or res.get("order_id")
+            if oid is None and res:
+                logger.warning(f"{symbol} TP response has no orderId key — full response: {res}")
+                oid = res.get("clientOrderId") or "OK_NO_ID"
             logger.info(f"{symbol} TP @ {tp_price} placed (id={oid}, attempt {i})")
             return oid
         except Exception as e:
@@ -278,7 +281,10 @@ async def _place_sl(client, symbol, sl_price, attempts=5):
                 symbol=symbol, side="SELL", type="STOP_MARKET",
                 stopPrice=sl_price, **kw,
             )
-            oid = res.get("orderId")
+            oid = res.get("orderId") or res.get("orderID") or res.get("order_id")
+            if oid is None and res:
+                logger.warning(f"{symbol} SL response has no orderId key — full response: {res}")
+                oid = res.get("clientOrderId") or "OK_NO_ID"
             logger.info(f"{symbol} SL @ {sl_price} placed (id={oid}, attempt {i})")
             return oid
         except Exception as e:

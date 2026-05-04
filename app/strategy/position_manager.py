@@ -4,6 +4,20 @@ from app.exchange.account import is_hedge_mode
 from app.core.logger import logger
 
 
+def _is_numeric_id(order_id):
+    if order_id is None:
+        return False
+    if isinstance(order_id, int) and not isinstance(order_id, bool):
+        return True
+    return isinstance(order_id, str) and order_id.isdigit()
+
+
+def _is_client_id(order_id):
+    if order_id is None:
+        return False
+    return isinstance(order_id, str) and not order_id.isdigit() and order_id != "OK_NO_ID"
+
+
 async def watch(trade: dict):
     """
     Watches the TP/SL orders AND the actual position size. Exits when:
@@ -56,7 +70,11 @@ async def _order_status(client, symbol, order_id):
     if order_id is None:
         return None
     try:
-        return await client.futures_get_order(symbol=symbol, orderId=order_id)
+        if _is_numeric_id(order_id):
+            return await client.futures_get_order(symbol=symbol, orderId=int(order_id))
+        if _is_client_id(order_id):
+            return await client.futures_get_order(symbol=symbol, origClientOrderId=order_id)
+        return None
     except Exception:
         return None
 
@@ -71,7 +89,12 @@ async def _cancel(client, symbol, order_id):
     if order_id is None:
         return
     try:
-        await client.futures_cancel_order(symbol=symbol, orderId=order_id)
+        if _is_numeric_id(order_id):
+            await client.futures_cancel_order(symbol=symbol, orderId=int(order_id))
+        elif _is_client_id(order_id):
+            await client.futures_cancel_order(symbol=symbol, origClientOrderId=order_id)
+        else:
+            return
     except Exception as e:
         msg = str(e)
         if "Unknown order" not in msg and "-2011" not in msg:
