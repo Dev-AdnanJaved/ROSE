@@ -249,26 +249,27 @@ async def _place_tp(client, symbol, qty, tp_price, attempts=4):
             if Config.USE_LIMIT_TP:
                 res = await client.futures_create_order(
                     symbol=symbol, side="SELL", type="LIMIT",
-                    timeInForce="GTC", quantity=qty, price=tp_price,
+                    timeInForce="GTC", quantity=qty, price=str(tp_price),
                     **_close_kwargs(),
                 )
             else:
                 kw = {"positionSide": "LONG", "closePosition": True} if is_hedge_mode() else {"closePosition": True}
                 res = await client.futures_create_order(
                     symbol=symbol, side="SELL", type="TAKE_PROFIT_MARKET",
-                    stopPrice=tp_price, **kw,
+                    stopPrice=str(tp_price), workingType="MARK_PRICE",
+                    **kw,
                 )
-            oid = res.get("orderId") or res.get("orderID") or res.get("order_id")
-            if oid is None and res:
-                logger.warning(f"{symbol} TP response has no orderId key — full response: {res}")
-                oid = res.get("clientOrderId") or "OK_NO_ID"
-            logger.info(f"{symbol} TP @ {tp_price} placed (id={oid}, attempt {i})")
-            return oid
+            logger.debug(f"{symbol} TP raw response: {res}")
+            oid = _extract_order_id(res)
+            if oid is not None:
+                logger.info(f"{symbol} TP @ {tp_price} placed (id={oid}, attempt {i})")
+                return oid
+            logger.warning(f"{symbol} TP attempt {i}/{attempts} — no orderId in response: {res}")
         except Exception as e:
             logger.warning(f"{symbol} TP attempt {i}/{attempts} failed: {e}")
-            if i < attempts:
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 2.0)
+        if i < attempts:
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 2.0)
     return None
 
 
@@ -279,20 +280,56 @@ async def _place_sl(client, symbol, sl_price, attempts=5):
             kw = {"positionSide": "LONG", "closePosition": True} if is_hedge_mode() else {"closePosition": True}
             res = await client.futures_create_order(
                 symbol=symbol, side="SELL", type="STOP_MARKET",
-                stopPrice=sl_price, **kw,
+                stopPrice=str(sl_price), workingType="MARK_PRICE",
+                **kw,
             )
-            oid = res.get("orderId") or res.get("orderID") or res.get("order_id")
-            if oid is None and res:
-                logger.warning(f"{symbol} SL response has no orderId key — full response: {res}")
-                oid = res.get("clientOrderId") or "OK_NO_ID"
-            logger.info(f"{symbol} SL @ {sl_price} placed (id={oid}, attempt {i})")
-            return oid
+            logger.debug(f"{symbol} SL raw response: {res}")
+            oid = _extract_order_id(res)
+            if oid is not None:
+                oid = await _verify_order_exists(client, symbol, oid, "SL", i)
+                if oid is not None:
+                    return oid
+            logger.warning(f"{symbol} SL attempt {i}/{attempts} — order not confirmed on Binance")
         except Exception as e:
             logger.warning(f"{symbol} SL attempt {i}/{attempts} failed: {e}")
-            if i < attempts:
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 2.0)
+        if i < attempts:
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 2.0)
     return None
+
+
+def _extract_order_id(res):
+    if not res:
+        return None
+    oid = res.get("orderId")
+    if oid is not None and oid != 0:
+        return oid
+    for key in ("orderID", "order_id"):
+        v = res.get(key)
+        if v is not None and v != 0:
+            return v
+    cid = res.get("clientOrderId")
+    if cid:
+        return cid
+    return None
+
+
+async def _verify_order_exists(client, symbol, oid, label, attempt):
+    try:
+        if isinstance(oid, int) or (isinstance(oid, str) and oid.isdigit()):
+            order = await client.futures_get_order(symbol=symbol, orderId=int(oid))
+        elif isinstance(oid, str):
+            order = await client.futures_get_order(symbol=symbol, origClientOrderId=oid)
+        else:
+            logger.info(f"{symbol} {label} @ placed (id={oid}, attempt {attempt}) — unverified")
+            return oid
+        status = order.get("status", "UNKNOWN")
+        real_id = order.get("orderId", oid)
+        logger.info(f"{symbol} {label} verified on Binance (id={real_id}, status={status}, attempt {attempt})")
+        return real_id
+    except Exception as e:
+        logger.warning(f"{symbol} {label} verify failed for id={oid}: {e}")
+        return None
 
 
 async def _emergency_close(client, symbol, qty):
