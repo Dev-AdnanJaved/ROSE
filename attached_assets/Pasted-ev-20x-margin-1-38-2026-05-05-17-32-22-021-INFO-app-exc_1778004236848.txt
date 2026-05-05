@@ -1,0 +1,13 @@
+ev=20x margin=1.38
+2026-05-05 17:32:22.021 | INFO     | app.exchange.executor:_place_tp:265 - TURTLEUSDT TP @ 0.05589 placed (id=398697769, attempt 1)
+2026-05-05 17:32:22.022 | INFO     | app.exchange.executor:_compute_sl_price:385 - TURTLEUSDT liq=0.046452 -> SL=0.04668426 (buffer 0.5%)
+2026-05-05 17:32:22.167 | WARNING  | app.exchange.executor:_place_sl:292 - TURTLEUSDT SL attempt 1/5 — order not confirmed on Binance
+2026-05-05 17:32:22.612 | WARNING  | app.exchange.executor:_place_sl:294 - TURTLEUSDT SL attempt 2/5 failed: APIError(code=-4130): An open stop or take profit order with GTE and closePosition in the direction is existing.
+2026-05-05 17:32:23.358 | WARNING  | app.exchange.executor:_place_sl:294 - TURTLEUSDT SL attempt 3/5 failed: APIError(code=-4130): An open stop or take profit order with GTE and closePosition in the direction is existing.
+2026-05-05 17:32:24.701 | WARNING  | app.exchange.executor:_place_sl:294 - TURTLEUSDT SL attempt 4/5 failed: APIError(code=-4130): An open stop or take profit order with GTE and closePosition in the direction is existing.
+2026-05-05 17:32:26.845 | WARNING  | app.exchange.executor:_place_sl:294 - TURTLEUSDT SL attempt 5/5 failed: APIError(code=-4130): An open stop or take profit order with GTE and closePosition in the direction is existing.
+2026-05-05 17:32:26.845 | CRITICAL | app.exchange.executor:_place_exit_brackets:231 - TURTLEUSDT SL FAILED after retries — emergency closing position to avoid naked risk
+2026-05-05 17:32:27.118 | WARNING  | app.exchange.executor:_emergency_close:347 - TURTLEUSDT emergency MARKET close succeeded qty=511.0 (attempt 1)
+2026-05-05 17:32:27.119 | INFO     | app.strategy.signal_router:_handle:115 - TURTLEUSDT entry placed in 5663ms — watching to close
+2026-05-05 17:32:27.257 | INFO     | app.strategy.position_manager:watch:54 - TURTLEUSDT position flat — cancelling residual orders
+2026-05-05 17:32:28.524 | INFO     | app.strategy.signal_router:_handle:124 - TURTLEUSDT closed (CLOSED) — balance 4.60 → 4.49

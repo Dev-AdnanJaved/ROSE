@@ -286,15 +286,45 @@ async def _place_sl(client, symbol, sl_price, attempts=5):
             logger.debug(f"{symbol} SL raw response: {res}")
             oid = _extract_order_id(res)
             if oid is not None:
-                oid = await _verify_order_exists(client, symbol, oid, "SL", i)
-                if oid is not None:
-                    return oid
+                verified = await _verify_order_exists(client, symbol, oid, "SL", i)
+                if verified is not None:
+                    return verified
+            existing = await _find_existing_sl(client, symbol)
+            if existing is not None:
+                logger.info(f"{symbol} SL already exists on Binance (id={existing}) — using it")
+                return existing
             logger.warning(f"{symbol} SL attempt {i}/{attempts} — order not confirmed on Binance")
         except Exception as e:
-            logger.warning(f"{symbol} SL attempt {i}/{attempts} failed: {e}")
+            msg = str(e)
+            if "-4130" in msg or "is existing" in msg:
+                existing = await _find_existing_sl(client, symbol)
+                if existing is not None:
+                    logger.info(f"{symbol} SL already exists on Binance (id={existing}) — using it (got -4130)")
+                    return existing
+                logger.warning(f"{symbol} got -4130 but no SL found on Binance — odd state")
+            else:
+                logger.warning(f"{symbol} SL attempt {i}/{attempts} failed: {e}")
         if i < attempts:
             await asyncio.sleep(delay)
             delay = min(delay * 2, 2.0)
+    return None
+
+
+async def _find_existing_sl(client, symbol):
+    """Query open orders, return the orderId of an existing SL (STOP_MARKET SELL with closePosition)."""
+    try:
+        orders = await client.futures_get_open_orders(symbol=symbol)
+        for o in orders:
+            if (
+                o.get("type") in ("STOP_MARKET", "STOP")
+                and o.get("side") == "SELL"
+                and (o.get("closePosition") in (True, "true") or o.get("reduceOnly") in (True, "true"))
+            ):
+                if is_hedge_mode() and o.get("positionSide") not in ("LONG", "BOTH"):
+                    continue
+                return o.get("orderId")
+    except Exception as e:
+        logger.warning(f"{symbol} _find_existing_sl query failed: {e}")
     return None
 
 
