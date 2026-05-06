@@ -223,7 +223,7 @@ async def _place_exit_brackets(client, symbol, entry, qty, tp_pct, leverage):
 
     sl_price = await sl_price_task
     sl_price = symbols.round_price(symbol, sl_price)
-    sl_task = asyncio.create_task(_place_sl(client, symbol, sl_price))
+    sl_task = asyncio.create_task(_place_sl(client, symbol, sl_price, qty))
 
     tp_id, sl_id = await asyncio.gather(tp_task, sl_task)
 
@@ -277,11 +277,14 @@ async def _place_tp(client, symbol, qty, tp_price, attempts=4):
     return None
 
 
-async def _place_sl(client, symbol, sl_price, attempts=5):
+async def _place_sl(client, symbol, sl_price, qty, attempts=5):
     delay = 0.3
     for i in range(1, attempts + 1):
         try:
-            kw = {"positionSide": "LONG", "closePosition": True} if is_hedge_mode() else {"closePosition": True}
+            if is_hedge_mode():
+                kw = {"positionSide": "LONG", "quantity": qty}
+            else:
+                kw = {"reduceOnly": True, "quantity": qty}
             res = await client.futures_create_order(
                 symbol=symbol, side="SELL", type="STOP_MARKET",
                 stopPrice=str(sl_price), workingType="MARK_PRICE",
