@@ -122,6 +122,13 @@ async def _handle(symbol: str):
         opened_at = time.time()
         result = await watch(trade)
         await asyncio.sleep(1.0)
+        try:
+            from app.exchange.executor import cleanup_stale_sl_orders
+            n = await cleanup_stale_sl_orders(symbol)
+            if n:
+                logger.info(f"{symbol} cleaned up {n} stale SL order(s) after close")
+        except Exception as ce:
+            logger.warning(f"{symbol} post-close cleanup failed: {ce}")
         balance_after = await get_available_usdt(force_refresh=True)
         duration = time.time() - opened_at
         await trade_history.trade_closed(result=result, balance_after=balance_after)

@@ -64,7 +64,9 @@ async def start_command_bot():
         "win rate, plus the last 15 trades with balance before → after.\n\n"
         "`/status` — Bot health: trading slot busy/free, open Binance positions, "
         "channels being watched, sizing mode, leverage cap & ladder, SL mode.\n\n"
-        "🧪 *Testing*\n"
+        "🧪 *Testing & Maintenance*\n"
+        "`/cleansl SYMBOL` — Cancel all open SELL stop orders on a symbol "
+        "(use to clean up stale conditional orders left on Binance).\n\n"
         "`/test SYMBOL` — Manually trigger a trade on any symbol "
         "(e.g. `/test BTCUSDT`). Goes through the full pipeline so you can "
         "verify SL/TP placement without waiting for a channel signal. "
@@ -199,6 +201,28 @@ async def start_command_bot():
         if len(out) > 3900:
             out = out[:3900] + "\n…(truncated)"
         await event.reply(out, parse_mode="markdown")
+
+    @_client.on(events.NewMessage(pattern=r"^/cleansl(?:\s+(\S+))?"))
+    async def _cleansl(event):
+        if not _is_authorized(event.sender_id):
+            return
+        m = event.pattern_match
+        sym = (m.group(1) or "").strip().upper() if m else ""
+        if not sym:
+            await event.reply(
+                "Usage: `/cleansl SYMBOL`\nExample: `/cleansl ZECUSDT`\n\n"
+                "Cancels ALL open SELL stop orders for that symbol on Binance.",
+                parse_mode="markdown",
+            )
+            return
+        if not sym.endswith("USDT"):
+            sym = sym + "USDT"
+        try:
+            from app.exchange.executor import cleanup_stale_sl_orders
+            n = await cleanup_stale_sl_orders(sym)
+            await event.reply(f"🧹 Cancelled `{n}` stale SL order(s) on `{sym}`.", parse_mode="markdown")
+        except Exception as e:
+            await event.reply(f"⚠️ Cleanup failed: `{e}`", parse_mode="markdown")
 
     @_client.on(events.NewMessage(pattern=r"^/test(?:\s+(\S+))?"))
     async def _test(event):

@@ -277,42 +277,103 @@ async def _place_tp(client, symbol, qty, tp_price, attempts=4):
     return None
 
 
-async def _place_sl(client, symbol, sl_price, qty, attempts=5):
+async def _place_sl(client, symbol, sl_price, qty, attempts=3):
+    """Place SL with unique clientOrderId so we can always find it back, even if
+    Binance hides STOP orders behind a 'conditional orders' bucket and the
+    response is malformed."""
+    import uuid
+    base_cid = f"sl{symbol[:6]}{uuid.uuid4().hex[:12]}"
     delay = 0.3
     for i in range(1, attempts + 1):
+        cid = f"{base_cid}{i}"[:36]
         if is_hedge_mode():
             kw = {"positionSide": "LONG", "quantity": qty}
         else:
             kw = {"reduceOnly": True, "quantity": qty}
-        params = dict(symbol=symbol, side="SELL", type="STOP_MARKET",
-                      stopPrice=str(sl_price), workingType="MARK_PRICE", **kw)
+        params = dict(
+            symbol=symbol, side="SELL", type="STOP_MARKET",
+            stopPrice=str(sl_price), workingType="MARK_PRICE",
+            newClientOrderId=cid, **kw,
+        )
         logger.info(f"{symbol} SL attempt {i} REQUEST: {params}")
+        placed_call_returned = False
         try:
             res = await client.futures_create_order(**params)
+            placed_call_returned = True
             logger.info(f"{symbol} SL attempt {i} RESPONSE: {res}")
-            oid = _extract_order_id(res)
-            if oid is not None:
-                verified = await _verify_order_exists(client, symbol, oid, "SL", i)
-                if verified is not None:
-                    return verified
-            existing = await _find_existing_sl(client, symbol)
-            if existing is not None:
-                logger.info(f"{symbol} SL already exists on Binance (id={existing}) — using it")
-                return existing
-            logger.warning(f"{symbol} SL attempt {i}/{attempts} — order not confirmed on Binance")
         except Exception as e:
             msg = str(e)
             logger.warning(f"{symbol} SL attempt {i}/{attempts} EXCEPTION ({type(e).__name__}): {msg}")
-            if "-4130" in msg or "is existing" in msg:
-                existing = await _find_existing_sl(client, symbol)
-                if existing is not None:
-                    logger.info(f"{symbol} SL already exists on Binance (id={existing}) — using it (got -4130)")
-                    return existing
-                logger.warning(f"{symbol} got -4130 but no SL found on Binance — odd state")
+            if "-4130" not in msg and "is existing" not in msg:
+                if i < attempts:
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 2.0)
+                continue
+
+        await asyncio.sleep(0.2)
+        confirmed_id = await _confirm_sl_by_cid(client, symbol, cid)
+        if confirmed_id is not None:
+            logger.info(f"{symbol} SL CONFIRMED (id={confirmed_id}, cid={cid}, attempt {i})")
+            return confirmed_id
+
+        if not placed_call_returned:
+            existing = await _find_any_open_sl(client, symbol)
+            if existing is not None:
+                logger.info(f"{symbol} SL found via fallback open-order scan (id={existing})")
+                return existing
+
+        logger.warning(f"{symbol} SL attempt {i}/{attempts} — could not confirm by cid={cid}")
         if i < attempts:
             await asyncio.sleep(delay)
             delay = min(delay * 2, 2.0)
     return None
+
+
+async def _confirm_sl_by_cid(client, symbol, cid):
+    """Look up the order we just placed by our own clientOrderId."""
+    try:
+        order = await client.futures_get_order(symbol=symbol, origClientOrderId=cid)
+        if order and order.get("status") in ("NEW", "PARTIALLY_FILLED", "FILLED"):
+            return order.get("orderId")
+    except Exception as e:
+        logger.warning(f"{symbol} confirm SL by cid={cid} failed: {e}")
+    return None
+
+
+async def _find_any_open_sl(client, symbol):
+    """Last-resort scan via futures_get_all_orders (catches conditional orders too)."""
+    try:
+        orders = await client.futures_get_all_orders(symbol=symbol, limit=20)
+        for o in reversed(orders):
+            if (o.get("status") == "NEW"
+                and (o.get("type") or "").upper() in ("STOP_MARKET", "STOP")
+                and (o.get("side") or "").upper() == "SELL"):
+                return o.get("orderId")
+    except Exception as e:
+        logger.warning(f"{symbol} _find_any_open_sl failed: {e}")
+    return None
+
+
+async def cleanup_stale_sl_orders(symbol):
+    """Cancel ALL open SELL stop orders on a symbol. Use after a position is closed
+    to clean up any orphaned conditional orders."""
+    client = await get_client()
+    cancelled = 0
+    try:
+        orders = await client.futures_get_all_orders(symbol=symbol, limit=50)
+        for o in orders:
+            if (o.get("status") == "NEW"
+                and (o.get("type") or "").upper() in ("STOP_MARKET", "STOP")
+                and (o.get("side") or "").upper() == "SELL"):
+                try:
+                    await client.futures_cancel_order(symbol=symbol, orderId=o["orderId"])
+                    cancelled += 1
+                    logger.info(f"{symbol} cancelled stale SL id={o['orderId']}")
+                except Exception as ce:
+                    logger.warning(f"{symbol} couldn't cancel stale SL {o['orderId']}: {ce}")
+    except Exception as e:
+        logger.warning(f"{symbol} cleanup_stale_sl_orders failed: {e}")
+    return cancelled
 
 
 async def _find_existing_sl(client, symbol):
