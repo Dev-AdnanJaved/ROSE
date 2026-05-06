@@ -67,6 +67,9 @@ async def watch(trade: dict):
 
 
 async def _order_status(client, symbol, order_id):
+    """Returns dict with at least {status: ...}. For algo/conditional orders the
+    regular endpoint returns -2013; in that case we look in the conditional bucket.
+    Algo orders use 'algoStatus' which we normalize to 'status'."""
     if order_id is None:
         return None
     try:
@@ -75,8 +78,21 @@ async def _order_status(client, symbol, order_id):
         if _is_client_id(order_id):
             return await client.futures_get_order(symbol=symbol, origClientOrderId=order_id)
         return None
+    except Exception as e:
+        if "-2013" not in str(e):
+            return None
+    try:
+        res = await client._request_futures_api(
+            "get", "algo/futures/openOrders", True, data={"symbol": symbol}
+        )
+        orders = res.get("orders") if isinstance(res, dict) else (res or [])
+        for o in orders or []:
+            if str(o.get("algoId")) == str(order_id) or o.get("clientAlgoId") == str(order_id):
+                st = o.get("algoStatus") or o.get("status")
+                return {**o, "status": st}
     except Exception:
-        return None
+        pass
+    return None
 
 
 def _is_filled(status):
@@ -91,14 +107,29 @@ async def _cancel(client, symbol, order_id):
     try:
         if _is_numeric_id(order_id):
             await client.futures_cancel_order(symbol=symbol, orderId=int(order_id))
-        elif _is_client_id(order_id):
-            await client.futures_cancel_order(symbol=symbol, origClientOrderId=order_id)
-        else:
             return
+        if _is_client_id(order_id):
+            await client.futures_cancel_order(symbol=symbol, origClientOrderId=order_id)
+            return
+        return
     except Exception as e:
         msg = str(e)
-        if "Unknown order" not in msg and "-2011" not in msg:
-            logger.warning(f"{symbol} cancel order {order_id} failed: {e}")
+        if "Unknown order" in msg or "-2011" in msg:
+            return
+        try:
+            data = {"symbol": symbol}
+            if _is_numeric_id(order_id):
+                data["algoId"] = int(order_id)
+            else:
+                data["clientAlgoId"] = order_id
+            await client._request_futures_api("delete", "algo/futures/order", True, data=data)
+            logger.info(f"{symbol} cancelled algo order {order_id} via algo endpoint")
+            return
+        except Exception as e2:
+            msg2 = str(e2)
+            if "Unknown order" in msg2 or "-2011" in msg2:
+                return
+            logger.warning(f"{symbol} cancel order {order_id} failed: {e} / algo: {e2}")
 
 
 async def _position_amt(client, symbol) -> float:

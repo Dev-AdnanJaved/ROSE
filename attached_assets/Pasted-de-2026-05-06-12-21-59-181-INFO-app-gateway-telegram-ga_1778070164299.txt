@@ -1,0 +1,12 @@
+de)
+2026-05-06 12:21:59.181 | INFO     | app.gateway.telegram_gateway:start_telegram:37 - Telegram listening on: [-1001969210392]
+2026-05-06 12:22:04.570 | INFO     | app.telegram.command_bot:start_command_bot:253 - Command bot online as @RoseSignalTracker_Bot
+2026-05-06 12:22:17.587 | INFO     | app.strategy.signal_router:_handle:96 - LABUSDT cap=MID tp=3.0%
+2026-05-06 12:22:17.742 | INFO     | app.exchange.executor:_set_leverage_with_fallback:67 - LABUSDT leverage set to 20x
+2026-05-06 12:22:17.743 | INFO     | app.exchange.executor:open_trade:147 - LABUSDT balance=2.42 USDT × 30.0% = margin 0.73 USDT
+2026-05-06 12:22:17.879 | INFO     | app.exchange.executor:open_trade:178 - OPENED LABUSDT qty=4.0 entry=3.51835 lev=20x margin=0.73
+2026-05-06 12:22:18.011 | INFO     | app.exchange.executor:_place_tp:269 - LABUSDT TP @ 3.6239 placed (id=1926726889, attempt 1)
+2026-05-06 12:22:18.013 | INFO     | app.exchange.executor:_compute_sl_price:561 - LABUSDT liq=3.01986641 -> SL=3.03496574205 (buffer 0.5%)
+2026-05-06 12:22:18.013 | INFO     | app.exchange.executor:_place_sl:373 - LABUSDT SL placing (single-shot) REQUEST: {'symbol': 'LABUSDT', 'side': 'SELL', 'type': 'STOP_MARKET', 'stopPrice': '3.035', 'workingType': 'MARK_PRICE', 'newClientOrderId': 'BOTSL12c97af98b138', 'positionSide': 'LONG', 'quantity': 4.0}
+2026-05-06 12:22:18.153 | INFO     | app.exchange.executor:_place_sl:379 - LABUSDT SL placed RESPONSE: {'algoId': 3000001457022762, 'clientAlgoId': 'x-Cb7ytekJ57176298e0862be9409668', 'algoType': 'CONDITIONAL', 'orderType': 'STOP_MARKET', 'symbol': 'LABUSDT', 'side': 'SELL', 'positionSide': 'LONG', 'timeInForce': 'GTC', 'quantity': '4', 'algoStatus': 'NEW', 'triggerPrice': '3.0350000', 'price': '0.0000000', 'icebergQuantity': None, 'selfTradePreventionMode': 'EXPIRE_MAKER', 'workingType': 'MARK_PRICE', 'priceMatch': 'NONE', 'closePosition': False, 'priceProtect': False, 'reduceOnly': True, 'createTime': 1778070138082, 'updateTime': 1778070138082, 'triggerTime': 0, 'goodTillDate': 0}
+2026-05-06 12:22:18.154 | INFO     | app.strategy.signal_router:_handle:119 - LABUSDT entry placed in 567ms — watching to close
