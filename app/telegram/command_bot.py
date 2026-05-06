@@ -4,6 +4,7 @@ from app.core.config import Config
 from app.core.logger import logger
 from app.exchange.account import get_available_usdt, get_open_position_symbols
 from app.strategy import trade_history, signal_router
+from app.bus.redis_bus import publish
 
 
 _client: TelegramClient | None = None
@@ -63,6 +64,12 @@ async def start_command_bot():
         "win rate, plus the last 15 trades with balance before → after.\n\n"
         "`/status` — Bot health: trading slot busy/free, open Binance positions, "
         "channels being watched, sizing mode, leverage cap & ladder, SL mode.\n\n"
+        "🧪 *Testing*\n"
+        "`/test SYMBOL` — Manually trigger a trade on any symbol "
+        "(e.g. `/test BTCUSDT`). Goes through the full pipeline so you can "
+        "verify SL/TP placement without waiting for a channel signal. "
+        "Uses your real balance & TRADE_MARGIN_PCT — set it to 1% in `.env` "
+        "for safe testing.\n\n"
         "ℹ️ *Info*\n"
         "`/start` — Welcome screen.\n"
         "`/help` — This message.\n\n"
@@ -192,6 +199,30 @@ async def start_command_bot():
         if len(out) > 3900:
             out = out[:3900] + "\n…(truncated)"
         await event.reply(out, parse_mode="markdown")
+
+    @_client.on(events.NewMessage(pattern=r"^/test(?:\s+(\S+))?"))
+    async def _test(event):
+        if not _is_authorized(event.sender_id):
+            return
+        m = event.pattern_match
+        sym = (m.group(1) or "").strip().upper() if m else ""
+        if not sym:
+            await event.reply(
+                "Usage: `/test SYMBOL`\nExample: `/test BTCUSDT`\n\n"
+                "⚠️ Uses real money. Set `TRADE_MARGIN_PCT=1` in `.env` for tiny test trades.",
+                parse_mode="markdown",
+            )
+            return
+        if not sym.endswith("USDT"):
+            sym = sym + "USDT"
+        if signal_router.is_trading():
+            await event.reply(f"⏭️ Bot is busy with another trade — `/test {sym}` ignored.", parse_mode="markdown")
+            return
+        await event.reply(
+            f"🧪 *Test signal injected*: `{sym}`\nWatch for the next notification…",
+            parse_mode="markdown",
+        )
+        await publish({"symbol": sym})
 
     await _client.start(bot_token=Config.TG_BOT_TOKEN)
     me = await _client.get_me()
