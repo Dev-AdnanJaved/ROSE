@@ -280,17 +280,16 @@ async def _place_tp(client, symbol, qty, tp_price, attempts=4):
 async def _place_sl(client, symbol, sl_price, qty, attempts=5):
     delay = 0.3
     for i in range(1, attempts + 1):
+        if is_hedge_mode():
+            kw = {"positionSide": "LONG", "quantity": qty}
+        else:
+            kw = {"reduceOnly": True, "quantity": qty}
+        params = dict(symbol=symbol, side="SELL", type="STOP_MARKET",
+                      stopPrice=str(sl_price), workingType="MARK_PRICE", **kw)
+        logger.info(f"{symbol} SL attempt {i} REQUEST: {params}")
         try:
-            if is_hedge_mode():
-                kw = {"positionSide": "LONG", "quantity": qty}
-            else:
-                kw = {"reduceOnly": True, "quantity": qty}
-            res = await client.futures_create_order(
-                symbol=symbol, side="SELL", type="STOP_MARKET",
-                stopPrice=str(sl_price), workingType="MARK_PRICE",
-                **kw,
-            )
-            logger.debug(f"{symbol} SL raw response: {res}")
+            res = await client.futures_create_order(**params)
+            logger.info(f"{symbol} SL attempt {i} RESPONSE: {res}")
             oid = _extract_order_id(res)
             if oid is not None:
                 verified = await _verify_order_exists(client, symbol, oid, "SL", i)
@@ -303,14 +302,13 @@ async def _place_sl(client, symbol, sl_price, qty, attempts=5):
             logger.warning(f"{symbol} SL attempt {i}/{attempts} — order not confirmed on Binance")
         except Exception as e:
             msg = str(e)
+            logger.warning(f"{symbol} SL attempt {i}/{attempts} EXCEPTION ({type(e).__name__}): {msg}")
             if "-4130" in msg or "is existing" in msg:
                 existing = await _find_existing_sl(client, symbol)
                 if existing is not None:
                     logger.info(f"{symbol} SL already exists on Binance (id={existing}) — using it (got -4130)")
                     return existing
                 logger.warning(f"{symbol} got -4130 but no SL found on Binance — odd state")
-            else:
-                logger.warning(f"{symbol} SL attempt {i}/{attempts} failed: {e}")
         if i < attempts:
             await asyncio.sleep(delay)
             delay = min(delay * 2, 2.0)
