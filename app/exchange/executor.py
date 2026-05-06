@@ -228,11 +228,15 @@ async def _place_exit_brackets(client, symbol, entry, qty, tp_pct, leverage):
     tp_id, sl_id = await asyncio.gather(tp_task, sl_task)
 
     if sl_id is None:
-        logger.critical(
-            f"{symbol} SL FAILED after retries — emergency closing position to avoid naked risk"
-        )
-        await _emergency_close(client, symbol, qty)
-        return tp_id, None
+        existing = await _find_existing_sl(client, symbol)
+        if existing is not None:
+            logger.warning(f"{symbol} SL was actually placed (found via open orders): id={existing}")
+            sl_id = existing
+        else:
+            logger.critical(
+                f"{symbol} SL could not be confirmed — LEAVING POSITION OPEN with TP only. "
+                f"Manage manually on Binance!"
+            )
 
     if tp_id is None:
         logger.error(

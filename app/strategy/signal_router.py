@@ -38,10 +38,13 @@ async def _release():
 
 
 def _fmt_open(trade, tp_pct, balance_before):
-    sl_txt = "✅" if trade.get("sl_order_id") else "❌ MISSING"
-    tp_txt = "✅" if trade.get("tp_order_id") else "❌ MISSING"
+    sl_ok = bool(trade.get("sl_order_id"))
+    tp_ok = bool(trade.get("tp_order_id"))
+    sl_txt = "✅" if sl_ok else "⚠️ NOT PLACED — manage manually!"
+    tp_txt = "✅" if tp_ok else "⚠️ NOT PLACED"
     entry = trade["entry"]
     tp_price = entry * (1 + tp_pct / 100)
+    warning = "" if sl_ok else "\n\n🚨 *NO STOP LOSS* — set one on Binance NOW!"
     return (
         f"🟢 *TRADE OPENED*\n"
         f"Symbol: `{trade['symbol']}`\n"
@@ -55,6 +58,7 @@ def _fmt_open(trade, tp_pct, balance_before):
         f"TP order: {tp_txt}\n"
         f"SL order: {sl_txt}\n"
         f"Balance before: `{balance_before:.2f}` USDT"
+        f"{warning}"
     )
 
 
