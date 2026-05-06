@@ -315,18 +315,17 @@ async def _place_sl(client, symbol, sl_price, attempts=5):
 
 
 async def _find_existing_sl(client, symbol):
-    """Query open orders, return the orderId of an existing SL (STOP_MARKET SELL with closePosition)."""
+    """Query open orders, return the orderId of any existing SELL stop on this symbol."""
     try:
         orders = await client.futures_get_open_orders(symbol=symbol)
+        logger.info(f"{symbol} open orders found: {len(orders)} — types: {[o.get('type') for o in orders]}")
         for o in orders:
-            if (
-                o.get("type") in ("STOP_MARKET", "STOP")
-                and o.get("side") == "SELL"
-                and (o.get("closePosition") in (True, "true") or o.get("reduceOnly") in (True, "true"))
-            ):
-                if is_hedge_mode() and o.get("positionSide") not in ("LONG", "BOTH"):
-                    continue
+            otype = (o.get("type") or "").upper()
+            side = (o.get("side") or "").upper()
+            if side == "SELL" and ("STOP" in otype):
+                logger.info(f"{symbol} matched existing SL: {o}")
                 return o.get("orderId")
+        logger.warning(f"{symbol} no SELL stop found among open orders: {orders}")
     except Exception as e:
         logger.warning(f"{symbol} _find_existing_sl query failed: {e}")
     return None
